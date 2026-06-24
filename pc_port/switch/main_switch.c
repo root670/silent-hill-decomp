@@ -63,6 +63,8 @@ static void ShowError(const char* title, const char* msg)
 
 extern void PsyX_CDFS_Init(const char* path, int unk1, int unk2);
 
+static char s_discPath[512] = "";
+
 static int InitDisc(void)
 {
     static const struct { const char* name; int region; } s_known[] = {
@@ -75,6 +77,7 @@ static int InitDisc(void)
         FILE* f = fopen(s_known[i].name, "rb");
         if (f) {
             fclose(f);
+            strncpy(s_discPath, s_known[i].name, sizeof(s_discPath) - 1);
             Fs_InitFileTableForRegion(s_known[i].region);
             PsyX_CDFS_Init(s_known[i].name, 0, 0);
             SH_LOG("Disc: %s", s_known[i].name);
@@ -90,6 +93,7 @@ static int InitDisc(void)
                 char path[256];
                 snprintf(path, sizeof(path), "gamedata/%s", ent->d_name);
                 closedir(d);
+                strncpy(s_discPath, path, sizeof(s_discPath) - 1);
                 Fs_InitFileTableForRegion(Region_USA);
                 PsyX_CDFS_Init(path, 0, 0);
                 SH_LOG("Disc (autodetect): %s", path);
@@ -147,7 +151,8 @@ extern void Fs_QueueInitialize(void);
 extern void MapRegistry_Init(void);
 
 const char* PcPort_GetGameDataPath(void) { return "gamedata"; }
-const char* PcPort_GetGameDiscPath(void)  { return ""; }
+
+const char* PcPort_GetGameDiscPath(void) { return s_discPath; }
 
 int main(int argc, char** argv)
 {
