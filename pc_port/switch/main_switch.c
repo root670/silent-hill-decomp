@@ -14,7 +14,6 @@
 
 #include <PsyX/PsyX_public.h>
 
-/* nxlink socket for stdio redirection */
 static int s_nxlinkSock = -1;
 static bool s_socketInit = false;
 
@@ -56,9 +55,6 @@ static void ShowError(const char* title, const char* msg)
     consoleExit(NULL);
 }
 
-/* Locate the disc image in gamedata/ and initialise CDFS + file table.
- * PcPort_GetGameDiscPath() / FindAndOpenDiscImage() are static in main_pc.c
- * and unavailable here, so we replicate the minimal detection logic. */
 extern void Fs_InitFileTableForRegion(int region);
 extern void PsyX_CDFS_Init(const char* path, int unk1, int unk2);
 
@@ -82,7 +78,6 @@ static void InitDisc(void)
             return;
         }
     }
-    /* Fallback: scan gamedata/ for any .bin */
     DIR* d = opendir("gamedata");
     if (d) {
         struct dirent* ent;
@@ -103,7 +98,6 @@ static void InitDisc(void)
     SH_WARN("No disc image found in gamedata/ — assets will not load");
 }
 
-/* All anim info builders — same list as main_pc.c */
 extern void PcPort_InitCharaAnimInfo(void);
 extern void PcPort_InitSdBuffers(void);
 extern void AsRodata_Reformat(void);
@@ -155,7 +149,6 @@ int main(int argc, char** argv)
 {
     InitNxlink();
 
-    /* Route all SH_DBG / PsyCross log output through stdout to nxlink */
     PsyX_Log_SetStream(stdout);
 
     EnsureDir("sdmc:/switch/SilentHill");
