@@ -11,8 +11,16 @@
 #include "pc_config.h"
 #include "psx_memory.h"
 #include "sh_log.h"
+#include "main/fsqueue.h"
+#include "dbg_overlay.h"
 
 #include <PsyX/PsyX_public.h>
+
+/* Globals that main_pc.c provides on other platforms */
+FILE* g_ShDebugLog         = NULL;
+int   g_ShDebugEchoStdout  = 0;
+void (*g_ShOverlayPushLine)(const char* line) = NULL;
+int   g_PcAllowDebugControls = 0;
 
 static int s_nxlinkSock = -1;
 static bool s_socketInit = false;
@@ -55,10 +63,7 @@ static void ShowError(const char* title, const char* msg)
     consoleExit(NULL);
 }
 
-extern void Fs_InitFileTableForRegion(int region);
 extern void PsyX_CDFS_Init(const char* path, int unk1, int unk2);
-
-enum { Region_USA = 0, Region_EUR = 1 };
 
 static void InitDisc(void)
 {
@@ -138,12 +143,13 @@ extern s_DemoFrameData* g_Demo_PlayFileBufferPtr;
 
 extern void MainLoop(void);
 extern void ResetCallback(void);
-extern void ResetGraph(int);
-extern void SetGraphDebug(int);
 extern void SpuInit(void);
 extern void CdInit(void);
 extern void Fs_QueueInitialize(void);
 extern void MapRegistry_Init(void);
+
+const char* PcPort_GetGameDataPath(void) { return "gamedata"; }
+const char* PcPort_GetGameDiscPath(void)  { return ""; }
 
 int main(int argc, char** argv)
 {

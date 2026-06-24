@@ -24,7 +24,9 @@ void SH_TakeScreenshot(const char* filename)
     int w, h;
     SDL_GetWindowSize(g_window, &w, &h);
     unsigned char* px = (unsigned char*)malloc(w * h * 3);
+#ifndef __SWITCH__
     glReadBuffer(GL_FRONT);
+#endif
     glReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, px);
     /* Flip vertically (OpenGL reads bottom-up) */
     unsigned char* flipped = (unsigned char*)malloc(w * h * 3);
@@ -223,7 +225,11 @@ void GsDrawOt(GsOT *ot)
         g_currentOTBucketCount = 1 << ot->length;
         PsyX_ClearGteDepthTable();
 
+#if defined(RENDERER_OGLES) || defined(__SWITCH__)
+        glClearDepthf(1.0f);
+#else
         glClearDepth(1.0f);
+#endif
         glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 #endif
         DrawOTag((u_long*)ot->tag);

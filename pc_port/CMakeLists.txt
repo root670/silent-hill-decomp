@@ -227,6 +227,9 @@ file(GLOB_RECURSE ALL_C_SOURCES
     "${CMAKE_SOURCE_DIR}/src/*.c"
     "${DECOMP_DIR}/src/*.c"
 )
+if(NINTENDO_SWITCH)
+    list(APPEND ALL_C_SOURCES ${SWITCH_SOURCES})
+endif()
 set_source_files_properties(${ALL_C_SOURCES} PROPERTIES
     COMPILE_DEFINITIONS "static_assert=_Static_assert"
 )
@@ -334,7 +337,14 @@ elseif(UNIX AND NOT NINTENDO_SWITCH)
 endif()
 
 if(NINTENDO_SWITCH)
-    target_link_libraries(SilentHillPC PRIVATE EGL GLESv2 glapi drm_nouveau nx m)
+    target_link_libraries(SilentHillPC PRIVATE
+        EGL GLESv2 glapi drm_nouveau
+        SDL2 openal jpeg
+        nx m
+    )
+    target_link_directories(SilentHillPC PRIVATE
+        "$ENV{DEVKITPRO}/portlibs/switch/lib"
+    )
     target_include_directories(SilentHillPC PRIVATE
         "$ENV{DEVKITPRO}/portlibs/switch/include"
         "$ENV{DEVKITPRO}/portlibs/switch/include/SDL2"
@@ -408,6 +418,12 @@ else()
             -Wno-write-strings
             -fsigned-char
             -fpermissive
+            # Force-include the compat types shim before each TU so our
+            # stdint-based s64/u64 definitions (with the _TYPES_H guard) are
+            # processed before the decomp types.h that uses `signed long long`.
+            # Without this, decomp/common.h finds types.h in its own directory
+            # first (GCC quoted-include rule) and conflicts with libnx's s64.
+            "-include${CMAKE_SOURCE_DIR}/include/switch_types_compat.h"
         )
     endif()
 endif()
