@@ -1,0 +1,237 @@
+#include <switch.h>
+#include <switch/runtime/nxlink.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <dirent.h>
+#include <sys/stat.h>
+
+#include "fs_pc.h"
+#include "pc_config.h"
+#include "psx_memory.h"
+#include "sh_log.h"
+
+#include <PsyX/PsyX_public.h>
+
+/* nxlink socket for stdio redirection */
+static int s_nxlinkSock = -1;
+static bool s_socketInit = false;
+
+static void InitNxlink(void)
+{
+    if (R_FAILED(socketInitializeDefault()))
+        return;
+    s_socketInit = true;
+    s_nxlinkSock = nxlinkStdio();
+}
+
+static void ExitNxlink(void)
+{
+    if (s_nxlinkSock >= 0) { close(s_nxlinkSock); s_nxlinkSock = -1; }
+    if (s_socketInit)      { socketExit(); s_socketInit = false; }
+}
+
+static void EnsureDir(const char* path)
+{
+    char buf[256];
+    size_t len = strlen(path);
+    if (len >= sizeof(buf)) return;
+    for (size_t i = 0; i < len; i++) {
+        buf[i] = path[i];
+        buf[i+1] = '\0';
+        if (path[i] == '/' && i > 0 && path[i-1] != ':')
+            mkdir(buf, 0777);
+    }
+    mkdir(path, 0777);
+}
+
+static void ShowError(const char* title, const char* msg)
+{
+    consoleInit(NULL);
+    consoleClear();
+    printf("%s\n\n%s\n\nThe app will close in 20 seconds.\n", title, msg);
+    consoleUpdate(NULL);
+    sleep(20);
+    consoleExit(NULL);
+}
+
+/* Locate the disc image in gamedata/ and initialise CDFS + file table.
+ * PcPort_GetGameDiscPath() / FindAndOpenDiscImage() are static in main_pc.c
+ * and unavailable here, so we replicate the minimal detection logic. */
+extern void Fs_InitFileTableForRegion(int region);
+extern void PsyX_CDFS_Init(const char* path, int unk1, int unk2);
+
+enum { Region_USA = 0, Region_EUR = 1 };
+
+static void InitDisc(void)
+{
+    static const struct { const char* name; int region; } s_known[] = {
+        { "gamedata/Silent Hill (USA).bin", Region_USA },
+        { "gamedata/Silent Hill (PAL).bin", Region_EUR },
+        { "gamedata/Silent Hill (Europe) (En,Fr,De,Es,It).bin", Region_EUR },
+    };
+    int n = (int)(sizeof(s_known) / sizeof(s_known[0]));
+    for (int i = 0; i < n; i++) {
+        FILE* f = fopen(s_known[i].name, "rb");
+        if (f) {
+            fclose(f);
+            Fs_InitFileTableForRegion(s_known[i].region);
+            PsyX_CDFS_Init(s_known[i].name, 0, 0);
+            SH_LOG("Disc: %s", s_known[i].name);
+            return;
+        }
+    }
+    /* Fallback: scan gamedata/ for any .bin */
+    DIR* d = opendir("gamedata");
+    if (d) {
+        struct dirent* ent;
+        while ((ent = readdir(d)) != NULL) {
+            size_t l = strlen(ent->d_name);
+            if (l > 4 && strcmp(ent->d_name + l - 4, ".bin") == 0) {
+                char path[256];
+                snprintf(path, sizeof(path), "gamedata/%s", ent->d_name);
+                closedir(d);
+                Fs_InitFileTableForRegion(Region_USA);
+                PsyX_CDFS_Init(path, 0, 0);
+                SH_LOG("Disc (autodetect): %s", path);
+                return;
+            }
+        }
+        closedir(d);
+    }
+    SH_WARN("No disc image found in gamedata/ — assets will not load");
+}
+
+/* All anim info builders — same list as main_pc.c */
+extern void PcPort_InitCharaAnimInfo(void);
+extern void PcPort_InitSdBuffers(void);
+extern void AsRodata_Reformat(void);
+extern void GroanerAnimInfos_Init(void);
+extern void BloodsuckerAnimInfos_Init(void);
+extern void BloodyLisaAnimInfos_Init(void);
+extern void AlessaAnimInfos_Init(void);
+extern void GhostChildAlessaAnimInfos_Init(void);
+extern void LisaAnimInfos_Init(void);
+extern void KaufmannAnimInfos_Init(void);
+extern void DahliaAnimInfos_Init(void);
+extern void CatAnimInfos_Init(void);
+extern void PuppetNurseData_Init(void);
+extern void LarvalStalkerAnimInfos_Init(void);
+extern void HangedScratcherAnimInfos_Init(void);
+extern void CreeperAnimInfos_Init(void);
+extern void SplitHeadAnimInfos_Init(void);
+extern void RomperAnimInfos_Init(void);
+extern void LockerDeadBodyAnimInfos_Init(void);
+extern void TwinfeelerAnimInfos_Init(void);
+extern void FloatstingerAnimInfos_Init(void);
+extern void MonsterCybilAnimInfos_Init(void);
+extern void FlaurosAnimInfos_Init(void);
+extern void ParasiteAnimInfos_Init(void);
+extern void GhostDoctorAnimInfos_Init(void);
+extern void BloodyIncubatorAnimInfos_Init(void);
+extern void IncubatorAnimInfos_Init(void);
+extern void LittleIncubusAnimInfos_Init(void);
+extern void IncubusAnimInfos_Init(void);
+extern void Unkkown23AnimInfos_Init(void);
+extern void Map6S04ExtraAnimInfos_Init(void);
+extern void CharaData_ApplyRegionPatches(void);
+
+extern void* g_OvlDynamic;
+extern void* g_OvlBodyprog;
+typedef struct s_DemoFrameData s_DemoFrameData;
+extern s_DemoFrameData* g_Demo_PlayFileBufferPtr;
+
+extern void MainLoop(void);
+extern void ResetCallback(void);
+extern void ResetGraph(int);
+extern void SetGraphDebug(int);
+extern void SpuInit(void);
+extern void CdInit(void);
+extern void Fs_QueueInitialize(void);
+extern void MapRegistry_Init(void);
+
+int main(int argc, char** argv)
+{
+    InitNxlink();
+
+    /* Route all SH_DBG / PsyCross log output through stdout to nxlink */
+    PsyX_Log_SetStream(stdout);
+
+    EnsureDir("sdmc:/switch/SilentHill");
+    if (chdir("sdmc:/switch/SilentHill") != 0)
+    {
+        ShowError("Fatal", "Cannot access sdmc:/switch/SilentHill\nCheck SD card.");
+        ExitNxlink();
+        return 1;
+    }
+
+    FsPC_Init("gamedata");
+    PcConfig_Load("config.cfg");
+
+    PsxMemory_Init();
+
+    PcPort_InitCharaAnimInfo();
+    PcPort_InitSdBuffers();
+    AsRodata_Reformat();
+
+    GroanerAnimInfos_Init();
+    BloodsuckerAnimInfos_Init();
+    BloodyLisaAnimInfos_Init();
+    AlessaAnimInfos_Init();
+    GhostChildAlessaAnimInfos_Init();
+    LisaAnimInfos_Init();
+    KaufmannAnimInfos_Init();
+    DahliaAnimInfos_Init();
+    CatAnimInfos_Init();
+    PuppetNurseData_Init();
+    LarvalStalkerAnimInfos_Init();
+    HangedScratcherAnimInfos_Init();
+    CreeperAnimInfos_Init();
+    SplitHeadAnimInfos_Init();
+    RomperAnimInfos_Init();
+    LockerDeadBodyAnimInfos_Init();
+    TwinfeelerAnimInfos_Init();
+    FloatstingerAnimInfos_Init();
+    MonsterCybilAnimInfos_Init();
+    FlaurosAnimInfos_Init();
+    ParasiteAnimInfos_Init();
+    GhostDoctorAnimInfos_Init();
+    BloodyIncubatorAnimInfos_Init();
+    IncubatorAnimInfos_Init();
+    LittleIncubusAnimInfos_Init();
+    IncubusAnimInfos_Init();
+    Unkkown23AnimInfos_Init();
+    Map6S04ExtraAnimInfos_Init();
+
+    {
+        extern void* D_800ED230[2];
+        D_800ED230[0] = FS_BUFFER_20;
+        D_800ED230[1] = FS_BUFFER_18;
+    }
+
+    g_OvlDynamic  = PSX_ADDR(0x000C9578);
+    g_OvlBodyprog = PSX_ADDR(0x00024B60);
+    g_Demo_PlayFileBufferPtr = (s_DemoFrameData*)PSX_ADDR(0x000F5E00);
+
+    InitDisc();
+
+    PsyX_Initialise("Silent Hill", 1280, 720, 0);
+
+    CharaData_ApplyRegionPatches();
+
+    ResetCallback();
+    SpuInit();
+    CdInit();
+    ResetGraph(0);
+    SetGraphDebug(0);
+    Fs_QueueInitialize();
+    MapRegistry_Init();
+
+    SH_LOG("Switch: entering MainLoop");
+    MainLoop();
+
+    PsyX_Shutdown();
+    ExitNxlink();
+    return 0;
+}
