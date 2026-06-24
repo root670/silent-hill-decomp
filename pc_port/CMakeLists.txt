@@ -162,8 +162,6 @@ list(FILTER PC_PORT_SOURCES EXCLUDE REGEX "map_overlay_stub\\.c$")
 list(FILTER PC_PORT_SOURCES EXCLUDE REGEX "combat_target\\.c$")
 
 if(NINTENDO_SWITCH)
-    # main_pc.c replaced by switch/main_switch.c; map overlay loader replaced by
-    # switch/map_switch.c (static pointer — no dlopen on Switch).
     list(FILTER PC_PORT_SOURCES EXCLUDE REGEX "main_pc\\.c$")
     list(FILTER PC_PORT_SOURCES EXCLUDE REGEX "map_overlay_loader\\.c$")
     list(FILTER PC_PORT_SOURCES EXCLUDE REGEX "dll_loader\\.c$")
@@ -330,7 +328,7 @@ endif()
 
 if(WIN32)
     target_link_libraries(SilentHillPC PRIVATE opengl32 winmm m)
-elseif(UNIX)
+elseif(UNIX AND NOT NINTENDO_SWITCH)
     find_package(OpenGL REQUIRED)
     target_link_libraries(SilentHillPC PRIVATE OpenGL::GL)
 endif()
