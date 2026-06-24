@@ -164,7 +164,6 @@ static void blog(const char* msg)
 
 int main(int argc, char** argv)
 {
-    mkdir("sdmc:/switch/SilentHill", 0777);
     blog("main: start");
 
     InitNxlink();
@@ -266,6 +265,7 @@ int main(int argc, char** argv)
     MainLoop();
 
     PsyX_Shutdown();
+    if (s_bootLog) { fclose(s_bootLog); s_bootLog = NULL; }
     ExitNxlink();
     return 0;
 }

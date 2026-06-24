@@ -339,7 +339,7 @@ endif()
 if(NINTENDO_SWITCH)
     target_link_libraries(SilentHillPC PRIVATE
         EGL GLESv2 glapi drm_nouveau
-        SDL2 openal jpeg
+        SDL2 openal
         nx m
     )
     target_link_directories(SilentHillPC PRIVATE
