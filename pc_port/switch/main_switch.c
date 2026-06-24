@@ -1,5 +1,6 @@
 #include <switch.h>
 #include <switch/runtime/nxlink.h>
+#include <switch/applets/error.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -55,17 +56,14 @@ static void EnsureDir(const char* path)
 
 static void ShowError(const char* title, const char* msg)
 {
-    consoleInit(NULL);
-    consoleClear();
-    printf("%s\n\n%s\n\nThe app will close in 20 seconds.\n", title, msg);
-    consoleUpdate(NULL);
-    sleep(20);
-    consoleExit(NULL);
+    ErrorApplicationConfig cfg;
+    errorApplicationCreate(&cfg, title, msg);
+    errorApplicationShow(&cfg);
 }
 
 extern void PsyX_CDFS_Init(const char* path, int unk1, int unk2);
 
-static void InitDisc(void)
+static int InitDisc(void)
 {
     static const struct { const char* name; int region; } s_known[] = {
         { "gamedata/Silent Hill (USA).bin", Region_USA },
@@ -80,7 +78,7 @@ static void InitDisc(void)
             Fs_InitFileTableForRegion(s_known[i].region);
             PsyX_CDFS_Init(s_known[i].name, 0, 0);
             SH_LOG("Disc: %s", s_known[i].name);
-            return;
+            return 0;
         }
     }
     DIR* d = opendir("gamedata");
@@ -95,12 +93,12 @@ static void InitDisc(void)
                 Fs_InitFileTableForRegion(Region_USA);
                 PsyX_CDFS_Init(path, 0, 0);
                 SH_LOG("Disc (autodetect): %s", path);
-                return;
+                return 0;
             }
         }
         closedir(d);
     }
-    SH_WARN("No disc image found in gamedata/ — assets will not load");
+    return -1;
 }
 
 extern void PcPort_InitCharaAnimInfo(void);
@@ -151,24 +149,46 @@ extern void MapRegistry_Init(void);
 const char* PcPort_GetGameDataPath(void) { return "gamedata"; }
 const char* PcPort_GetGameDiscPath(void)  { return ""; }
 
+/* Breadcrumb log written to SD card before PsyX_Log is live.
+ * fflush after every write so the last line before a crash is preserved. */
+static FILE* s_bootLog = NULL;
+
+static void blog(const char* msg)
+{
+    if (!s_bootLog)
+        s_bootLog = fopen("sdmc:/switch/SilentHill/boot.log", "w");
+    if (!s_bootLog) return;
+    fprintf(s_bootLog, "%s\n", msg);
+    fflush(s_bootLog);
+}
+
 int main(int argc, char** argv)
 {
+    mkdir("sdmc:/switch/SilentHill", 0777);
+    blog("main: start");
+
     InitNxlink();
+    blog("nxlink: done");
 
     PsyX_Log_SetStream(stdout);
+    blog("log stream: set");
 
     EnsureDir("sdmc:/switch/SilentHill");
     if (chdir("sdmc:/switch/SilentHill") != 0)
     {
+        blog("chdir: FAILED");
         ShowError("Fatal", "Cannot access sdmc:/switch/SilentHill\nCheck SD card.");
         ExitNxlink();
         return 1;
     }
+    blog("chdir: ok");
 
     FsPC_Init("gamedata");
     PcConfig_Load("config.cfg");
+    blog("config: loaded");
 
     PsxMemory_Init();
+    blog("PsxMemory: ok");
 
     PcPort_InitCharaAnimInfo();
     PcPort_InitSdBuffers();
@@ -213,21 +233,36 @@ int main(int argc, char** argv)
     g_OvlBodyprog = PSX_ADDR(0x00024B60);
     g_Demo_PlayFileBufferPtr = (s_DemoFrameData*)PSX_ADDR(0x000F5E00);
 
-    InitDisc();
+    blog("anim: done");
+    if (InitDisc() != 0)
+    {
+        blog("disc: NOT FOUND");
+        ShowError("Disc image not found",
+            "Place your Silent Hill disc image (.bin) in:\n"
+            "sdmc:/switch/SilentHill/gamedata/\n\n"
+            "Example: Silent Hill (USA).bin");
+        ExitNxlink();
+        return 1;
+    }
+    blog("disc: done");
 
     PsyX_Initialise("Silent Hill", 1280, 720, 0);
+    blog("PsyX: init ok");
 
     CharaData_ApplyRegionPatches();
 
     ResetCallback();
     SpuInit();
+    blog("spu: ok");
     CdInit();
     ResetGraph(0);
     SetGraphDebug(0);
     Fs_QueueInitialize();
     MapRegistry_Init();
+    blog("registry: ok");
 
     SH_LOG("Switch: entering MainLoop");
+    blog("MainLoop: entering");
     MainLoop();
 
     PsyX_Shutdown();
