@@ -149,45 +149,31 @@ extern void MapRegistry_Init(void);
 const char* PcPort_GetGameDataPath(void) { return "gamedata"; }
 const char* PcPort_GetGameDiscPath(void)  { return ""; }
 
-/* Breadcrumb log written to SD card before PsyX_Log is live.
- * fflush after every write so the last line before a crash is preserved. */
-static FILE* s_bootLog = NULL;
-
-static void blog(const char* msg)
-{
-    if (!s_bootLog)
-        s_bootLog = fopen("sdmc:/switch/SilentHill/boot.log", "w");
-    if (!s_bootLog) return;
-    fprintf(s_bootLog, "%s\n", msg);
-    fflush(s_bootLog);
-}
-
 int main(int argc, char** argv)
 {
-    blog("main: start");
-
     InitNxlink();
-    blog("nxlink: done");
 
+    /* SH_DBG and PsyCross logs both go to stdout (nxlink terminal).
+     * If enable_debug_log=1 in config, SH_DebugLogInit opens SilentHill.log
+     * and redirects g_ShDebugLog there after config is loaded. */
+    g_ShDebugLog = stdout;
     PsyX_Log_SetStream(stdout);
-    blog("log stream: set");
 
     EnsureDir("sdmc:/switch/SilentHill");
     if (chdir("sdmc:/switch/SilentHill") != 0)
     {
-        blog("chdir: FAILED");
         ShowError("Fatal", "Cannot access sdmc:/switch/SilentHill\nCheck SD card.");
         ExitNxlink();
         return 1;
     }
-    blog("chdir: ok");
 
     FsPC_Init("gamedata");
     PcConfig_Load("config.cfg");
-    blog("config: loaded");
+
+    /* Cap render loop at display refresh — uncapped render spins a core at 100%. */
+    g_cfg_swapInterval = 1;
 
     PsxMemory_Init();
-    blog("PsxMemory: ok");
 
     PcPort_InitCharaAnimInfo();
     PcPort_InitSdBuffers();
@@ -232,10 +218,8 @@ int main(int argc, char** argv)
     g_OvlBodyprog = PSX_ADDR(0x00024B60);
     g_Demo_PlayFileBufferPtr = (s_DemoFrameData*)PSX_ADDR(0x000F5E00);
 
-    blog("anim: done");
     if (InitDisc() != 0)
     {
-        blog("disc: NOT FOUND");
         ShowError("Disc image not found",
             "Place your Silent Hill disc image (.bin) in:\n"
             "sdmc:/switch/SilentHill/gamedata/\n\n"
@@ -243,29 +227,23 @@ int main(int argc, char** argv)
         ExitNxlink();
         return 1;
     }
-    blog("disc: done");
 
     PsyX_Initialise("Silent Hill", 1280, 720, 0);
-    blog("PsyX: init ok");
 
     CharaData_ApplyRegionPatches();
 
     ResetCallback();
     SpuInit();
-    blog("spu: ok");
     CdInit();
     ResetGraph(0);
     SetGraphDebug(0);
     Fs_QueueInitialize();
     MapRegistry_Init();
-    blog("registry: ok");
 
     SH_LOG("Switch: entering MainLoop");
-    blog("MainLoop: entering");
     MainLoop();
 
     PsyX_Shutdown();
-    if (s_bootLog) { fclose(s_bootLog); s_bootLog = NULL; }
     ExitNxlink();
     return 0;
 }
