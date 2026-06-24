@@ -232,10 +232,17 @@ int main(int argc, char** argv)
 
     /* Force NTSC (60Hz) — g_vmode defaults to -1 and the decomp never calls
      * SetVideoMode, so the interrupt thread would otherwise use PAL timing. */
-    extern int PsyX_Sys_SetVMode(int mode);
-    PsyX_Sys_SetVMode(0); /* 0 = MODE_NTSC */
+    SetVideoMode(0);
 
-    PsyX_Initialise("Silent Hill", 1280, 720, 0);
+    /* Match output resolution to display mode: 1080p docked, 720p handheld. */
+    int resW, resH;
+    if (appletGetOperationMode() == AppletOperationMode_Console) {
+        resW = 1920; resH = 1080;
+    } else {
+        resW = 1280; resH = 720;
+    }
+
+    PsyX_Initialise("Silent Hill", resW, resH, 0);
 
     CharaData_ApplyRegionPatches();
 
