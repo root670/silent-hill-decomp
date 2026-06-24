@@ -230,6 +230,11 @@ int main(int argc, char** argv)
         return 1;
     }
 
+    /* Force NTSC (60Hz) — g_vmode defaults to -1 and the decomp never calls
+     * SetVideoMode, so the interrupt thread would otherwise use PAL timing. */
+    extern int PsyX_Sys_SetVMode(int mode);
+    PsyX_Sys_SetVMode(0); /* 0 = MODE_NTSC */
+
     PsyX_Initialise("Silent Hill", 1280, 720, 0);
 
     CharaData_ApplyRegionPatches();
