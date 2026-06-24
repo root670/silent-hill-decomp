@@ -169,8 +169,11 @@ int main(int argc, char** argv)
     FsPC_Init("gamedata");
     PcConfig_Load("config.cfg");
 
-    /* Cap render loop at display refresh — uncapped render spins a core at 100%. */
-    g_cfg_swapInterval = 1;
+    /* Frame pacing is handled by the VBlank semaphore in PsyX_WaitForTimestep.
+     * GPU vsync (swap interval 1) on Switch/nouveau busy-waits on scanline
+     * counter — keeping it 0 avoids that spin while the semaphore still
+     * limits frames to 60Hz. */
+    g_cfg_swapInterval = 0;
 
     PsxMemory_Init();
 
