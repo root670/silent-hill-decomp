@@ -418,11 +418,9 @@ else()
             -Wno-write-strings
             -fsigned-char
             -fpermissive
-            # Force-include the compat types shim before each TU so our
-            # stdint-based s64/u64 definitions (with the _TYPES_H guard) are
-            # processed before the decomp types.h that uses `signed long long`.
-            # Without this, decomp/common.h finds types.h in its own directory
-            # first (GCC quoted-include rule) and conflicts with libnx's s64.
+            # GCC resolves quoted #include "types.h" from the source file's own dir first,
+            # so decomp/common.h finds its local types.h before pc_port/include/types.h,
+            # causing libnx s64/u64 conflicts. Force-include the stdint shim before each TU.
             "-include${CMAKE_SOURCE_DIR}/include/switch_types_compat.h"
         )
     endif()
