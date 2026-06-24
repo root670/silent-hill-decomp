@@ -167,8 +167,14 @@ static GLuint s_fmvVAO = 0;
 static GLuint s_fmvVBO = 0;
 static GLuint s_fmvProgram = 0;
 
+#if defined(RENDERER_OGLES)
+#  define FMV_GLSL_VERSION "#version 300 es\n"
+#else
+#  define FMV_GLSL_VERSION "#version 140\n"
+#endif
+
 static const char* s_fmvVertSrc =
-    "#version 140\n"
+    FMV_GLSL_VERSION
     "in vec2 a_pos;\n"
     "in vec2 a_uv;\n"
     "out vec2 v_uv;\n"
@@ -178,7 +184,7 @@ static const char* s_fmvVertSrc =
     "}\n";
 
 static const char* s_fmvFragSrc =
-    "#version 140\n"
+    FMV_GLSL_VERSION
     "precision highp float;\n"
     "in vec2 v_uv;\n"
     "out vec4 fragColor;\n"
