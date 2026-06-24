@@ -153,11 +153,10 @@ int main(int argc, char** argv)
 {
     InitNxlink();
 
-    /* SH_DBG and PsyCross logs both go to stdout (nxlink terminal).
-     * If enable_debug_log=1 in config, SH_DebugLogInit opens SilentHill.log
-     * and redirects g_ShDebugLog there after config is loaded. */
-    g_ShDebugLog = stdout;
-    PsyX_Log_SetStream(stdout);
+    /* PsyCross already printf()s to stdout unconditionally — no SetStream needed.
+     * g_ShDebugLog stays NULL so SH_DBG is a no-op; per-frame debug spam over
+     * the nxlink TCP socket saturates a CPU core. Enable via enable_debug_log=1
+     * in config.cfg to get a SilentHill.log on the SD card instead. */
 
     EnsureDir("sdmc:/switch/SilentHill");
     if (chdir("sdmc:/switch/SilentHill") != 0)
