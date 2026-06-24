@@ -151,6 +151,126 @@ set_source_files_properties(${MAP_SOURCES} PROPERTIES
     COMPILE_FLAGS "-DMAP0_S00 -DSH_MAP_NAME=map0_s00"
 )
 
+# On Switch all maps are compiled as sealed objects — don't double-compile map0_s00
+if(NINTENDO_SWITCH)
+    set(MAP_SOURCES "")
+endif()
+
+# =============================================================================
+# Switch: statically link ALL map overlays using objcopy symbol sealing.
+#
+# Each map is compiled separately, partial-linked into one .o, then all
+# non-exported symbols are localized with objcopy --keep-global-symbol so
+# same-named functions (player.c, particle.c, AI) don't collide at final link.
+# Only g_MapOverlayHeader_<name> stays global — the one symbol the loader needs.
+# =============================================================================
+if(NINTENDO_SWITCH)
+    find_program(AARCH64_LD  aarch64-none-elf-ld
+                 HINTS "${CMAKE_BINARY_DIR}" "$ENV{DEVKITPRO}/devkitA64/bin")
+    find_program(AARCH64_OBJCOPY aarch64-none-elf-objcopy
+                 HINTS "$ENV{DEVKITPRO}/devkitA64/bin")
+
+    set(SEALED_MAP_OBJECTS "")
+
+    # Common include flags for map compilation (mirrors the main executable's includes)
+    set(MAP_SWITCH_INCLUDES
+        -I"${CMAKE_SOURCE_DIR}/include"
+        -I"${CMAKE_SOURCE_DIR}/include/psyq_compat"
+        -I"${CMAKE_SOURCE_DIR}/src"
+        -I"${DECOMP_DIR}/include"
+        -I"${DECOMP_DIR}/include/decomp"
+        -I"${PSYCROSS_DIR}/include/psx"
+        -I"${PSYCROSS_DIR}/include"
+        -I"$ENV{DEVKITPRO}/portlibs/switch/include"
+        -I"$ENV{DEVKITPRO}/portlibs/switch/include/SDL2"
+        -I"$ENV{DEVKITPRO}/libnx/include"
+    )
+    set(MAP_SWITCH_DEFS
+        -DVER_USA -DSH_PC_PORT -DSKIP_ASM -DUSE_PGXP=0
+        -DPSYX_SKIP_FRAMEBUFFER_STORE -DSH_MAP_DLL
+    )
+    # Compiler flags matching the main Switch build
+    set(MAP_SWITCH_CFLAGS
+        -march=armv8-a+crc+crypto -mtune=cortex-a57 -mtp=soft -fPIE
+        -ftls-model=local-exec -ffast-math -g -O2
+        -Wno-implicit-function-declaration -Wno-ignored-qualifiers
+        -Wno-int-conversion -Wno-return-mismatch -Wno-discarded-qualifiers
+        -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast
+        -Wno-incompatible-pointer-types -Wno-narrowing
+        -Wno-write-strings -fsigned-char -fpermissive
+        -include "${CMAKE_SOURCE_DIR}/include/switch_types_compat.h"
+    )
+
+    # Discover all map directories that have a header .c file
+    file(GLOB MAP_DIRS "${DECOMP_DIR}/src/maps/map*")
+    foreach(MAP_DIR ${MAP_DIRS})
+        get_filename_component(MAP_NAME ${MAP_DIR} NAME)
+        string(TOUPPER ${MAP_NAME} MAP_DEFINE)
+        # MAP_DEFINE = MAP0_S00, MAP1_S01 etc. (keep underscores — code checks #if defined(MAP0_S00))
+
+        # Glob all .c files for this map
+        file(GLOB MAP_C_SRCS "${MAP_DIR}/*.c")
+        # Add extracted cutscene data if present
+        set(MAP_EXTRACTED "${CMAKE_SOURCE_DIR}/build_gen/extracted_data/${MAP_NAME}_extracted_data.c")
+        if(EXISTS "${MAP_EXTRACTED}")
+            list(APPEND MAP_C_SRCS "${MAP_EXTRACTED}")
+        endif()
+
+        if(NOT MAP_C_SRCS)
+            continue()
+        endif()
+
+        # Output paths
+        set(MAP_OBJ_DIR  "${CMAKE_BINARY_DIR}/map_sealed/${MAP_NAME}")
+        set(MAP_MERGED   "${MAP_OBJ_DIR}/merged.o")
+        set(MAP_SEALED   "${MAP_OBJ_DIR}/sealed.o")
+        file(MAKE_DIRECTORY "${MAP_OBJ_DIR}")
+
+        # Compile each source to its own .o
+        set(MAP_OBJS "")
+        foreach(SRC ${MAP_C_SRCS})
+            get_filename_component(SRC_NAME ${SRC} NAME_WE)
+            set(OBJ "${MAP_OBJ_DIR}/${SRC_NAME}.o")
+            add_custom_command(
+                OUTPUT "${OBJ}"
+                COMMAND "$ENV{DEVKITPRO}/devkitA64/bin/aarch64-none-elf-gcc"
+                    ${MAP_SWITCH_CFLAGS} ${MAP_SWITCH_INCLUDES} ${MAP_SWITCH_DEFS}
+                    -D${MAP_DEFINE} "-DSH_MAP_NAME=${MAP_NAME}"
+                    -Dstatic_assert=_Static_assert
+        -std=gnu11 -c "${SRC}" -o "${OBJ}"
+                DEPENDS "${SRC}"
+                COMMENT "Compiling ${MAP_NAME}/${SRC_NAME}.c"
+            )
+            list(APPEND MAP_OBJS "${OBJ}")
+        endforeach()
+
+        # Partial-link all .o files into one.
+        # --unresolved-symbols=ignore-all: maps reference symbols from the main
+        # executable (bodyprog, sys) that don't exist yet at partial-link time.
+        add_custom_command(
+            OUTPUT "${MAP_MERGED}"
+            COMMAND ${AARCH64_LD} -r --unresolved-symbols=ignore-all ${MAP_OBJS} -o "${MAP_MERGED}"
+            DEPENDS ${MAP_OBJS}
+            COMMENT "Partial-linking ${MAP_NAME}"
+        )
+
+        # Seal: keep only g_MapOverlayHeader_<name> global, localize everything else
+        add_custom_command(
+            OUTPUT "${MAP_SEALED}"
+            COMMAND ${AARCH64_OBJCOPY}
+                --keep-global-symbol=g_MapOverlayHeader_${MAP_NAME}
+                "${MAP_MERGED}" "${MAP_SEALED}"
+            DEPENDS "${MAP_MERGED}"
+            COMMENT "Sealing ${MAP_NAME} (localizing internal symbols)"
+        )
+
+        list(APPEND SEALED_MAP_OBJECTS "${MAP_SEALED}")
+    endforeach()
+
+    # SEALED_MAP_OBJECTS collected above — dependencies added after add_executable below.
+endif()
+# (switch_maps target and link added after add_executable — see below)
+
 # PC port specific sources
 file(GLOB_RECURSE PC_PORT_SOURCES
     "${CMAKE_SOURCE_DIR}/src/*.c"
@@ -210,6 +330,22 @@ add_executable(SilentHillPC
 if(NOT NINTENDO_SWITCH)
     set_target_properties(SilentHillPC PROPERTIES ENABLE_EXPORTS ON)
 endif()
+
+# Switch: wire up sealed map objects after add_executable
+if(NINTENDO_SWITCH AND SEALED_MAP_OBJECTS)
+    add_custom_target(switch_maps ALL DEPENDS ${SEALED_MAP_OBJECTS})
+    add_dependencies(SilentHillPC switch_maps)
+    target_link_libraries(SilentHillPC PRIVATE ${SEALED_MAP_OBJECTS})
+    # --allow-multiple-definition: sealed objects from different maps may define
+    # the same-named data symbols (each at PSX overlay address); pick first seen.
+    # --warn-unresolved-symbols: some partially-decompiled maps reference data
+    # not yet defined — warn rather than error so the binary still links.
+    target_link_options(SilentHillPC PRIVATE
+        "-Wl,--allow-multiple-definition"
+        "-Wl,--warn-unresolved-symbols"
+    )
+endif()
+
 if(MINGW)
     target_link_options(SilentHillPC PRIVATE "-Wl,--export-all-symbols")
     # Build as a GUI (windows) subsystem app so Windows doesn't spawn a console
