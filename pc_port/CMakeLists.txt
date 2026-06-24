@@ -294,6 +294,7 @@ if(NINTENDO_SWITCH)
     set(SWITCH_SOURCES
         "${CMAKE_SOURCE_DIR}/switch/main_switch.c"
         "${CMAKE_SOURCE_DIR}/switch/map_switch.c"
+        "${CMAKE_SOURCE_DIR}/switch/map_data_stubs.c"
     )
 endif()
 # Windows: compile the .rc so the exe carries an application icon (Explorer,
