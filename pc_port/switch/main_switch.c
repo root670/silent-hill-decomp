@@ -174,11 +174,11 @@ int main(int argc, char** argv)
     FsPC_Init("gamedata");
     PcConfig_Load("config.cfg");
 
-    /* Frame pacing is handled by the VBlank semaphore in PsyX_WaitForTimestep.
-     * GPU vsync (swap interval 1) on Switch/nouveau busy-waits on scanline
-     * counter — keeping it 0 avoids that spin while the semaphore still
-     * limits frames to 60Hz. */
-    g_cfg_swapInterval = 0;
+    /* Enable vsync so the Tegra GPU power management can idle between frames.
+     * Without vsync the GPU has no idle signal and runs at full power even on
+     * simple 2D screens. Our VBlank semaphore in PsyX_WaitForTimestep still
+     * caps frame rate; vsync adds proper GPU power management on top. */
+    g_cfg_swapInterval = 1;
 
     PsxMemory_Init();
 

@@ -10,12 +10,8 @@ set(CMAKE_CXX_STANDARD 17)
 # Harmless on Windows/MinGW (PE code is already position-independent).
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-if(NINTENDO_SWITCH AND CMAKE_BUILD_TYPE STREQUAL "Release")
-    # Strip debug symbols from Release builds — devkitpro adds -g by default
-    # which increases binary size and cache pressure without benefiting players.
+if(NINTENDO_SWITCH)
     # -ffast-math enables NEON vectorization of GTE sin/cos/sqrt loops.
-    string(REPLACE "-g" "" CMAKE_C_FLAGS_RELEASE   "${CMAKE_C_FLAGS_RELEASE}")
-    string(REPLACE "-g" "" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
     add_compile_options(-ffast-math)
 endif()
 
