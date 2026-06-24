@@ -161,6 +161,18 @@ list(FILTER PC_PORT_SOURCES EXCLUDE REGEX "map_overlay_stub\\.c$")
 # (src/bodyprog/bodyprog_combat_8005BF38.c) now provides target selection.
 list(FILTER PC_PORT_SOURCES EXCLUDE REGEX "combat_target\\.c$")
 
+if(NINTENDO_SWITCH)
+    # main_pc.c replaced by switch/main_switch.c; map overlay loader replaced by
+    # switch/map_switch.c (static pointer — no dlopen on Switch).
+    list(FILTER PC_PORT_SOURCES EXCLUDE REGEX "main_pc\\.c$")
+    list(FILTER PC_PORT_SOURCES EXCLUDE REGEX "map_overlay_loader\\.c$")
+    list(FILTER PC_PORT_SOURCES EXCLUDE REGEX "dll_loader\\.c$")
+
+    set(SWITCH_SOURCES
+        "${CMAKE_SOURCE_DIR}/switch/main_switch.c"
+        "${CMAKE_SOURCE_DIR}/switch/map_switch.c"
+    )
+endif()
 # Windows: compile the .rc so the exe carries an application icon (Explorer,
 # taskbar, title bar). windres resolves the ICON path relative to the .rc dir.
 if(WIN32)
@@ -185,13 +197,16 @@ add_executable(SilentHillPC
     ${SCREEN_SOURCES}
     ${MAP_SOURCES}
     ${SH_APP_RESOURCES}
+    ${SWITCH_SOURCES}
 )
 
 # Export symbols from the executable so map overlay DLLs can link against it.
 # On Linux, ENABLE_EXPORTS adds -rdynamic so dlopen'd libraries see exe symbols.
 # On Windows/MinGW, we additionally need --export-all-symbols because MinGW
 # only exports __declspec(dllexport)-marked symbols by default.
-set_target_properties(SilentHillPC PROPERTIES ENABLE_EXPORTS ON)
+if(NOT NINTENDO_SWITCH)
+    set_target_properties(SilentHillPC PROPERTIES ENABLE_EXPORTS ON)
+endif()
 if(MINGW)
     target_link_options(SilentHillPC PRIVATE "-Wl,--export-all-symbols")
     # Build as a GUI (windows) subsystem app so Windows doesn't spawn a console
@@ -320,6 +335,15 @@ elseif(UNIX)
     target_link_libraries(SilentHillPC PRIVATE OpenGL::GL)
 endif()
 
+if(NINTENDO_SWITCH)
+    target_link_libraries(SilentHillPC PRIVATE EGL GLESv2 glapi drm_nouveau nx m)
+    target_include_directories(SilentHillPC PRIVATE
+        "$ENV{DEVKITPRO}/portlibs/switch/include"
+        "$ENV{DEVKITPRO}/portlibs/switch/include/SDL2"
+        "$ENV{DEVKITPRO}/libnx/include"
+    )
+endif()
+
 # =============================================================================
 # Compiler flags
 # =============================================================================
@@ -375,6 +399,19 @@ else()
             $<$<COMPILE_LANGUAGE:C>:-Wno-error=return-mismatch>
         )
     endif()
+
+    if(NINTENDO_SWITCH)
+        target_compile_options(SilentHillPC PRIVATE
+            -Wno-implicit-function-declaration
+            -Wno-ignored-qualifiers
+            -Wno-int-conversion
+            -Wno-return-mismatch
+            -Wno-narrowing
+            -Wno-write-strings
+            -fsigned-char
+            -fpermissive
+        )
+    endif()
 endif()
 
 # =============================================================================
@@ -387,6 +424,10 @@ endif()
 # Always copy run_capture.bat so the user has a debug-launcher next to the exe
 if(WIN32 AND EXISTS "${CMAKE_SOURCE_DIR}/run_capture.bat")
     file(COPY "${CMAKE_SOURCE_DIR}/run_capture.bat" DESTINATION "${CMAKE_BINARY_DIR}")
+endif()
+
+if(NINTENDO_SWITCH)
+    nx_create_nro(SilentHillPC ICON "${CMAKE_SOURCE_DIR}/switch/icon.jpg")
 endif()
 
 # =============================================================================
