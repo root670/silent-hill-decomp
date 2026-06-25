@@ -15,6 +15,29 @@
 #include "main/fsqueue.h"
 #include "dbg_overlay.h"
 
+/* Shared map helper function — body in the header, compiled here as on PC.
+ * Forward-declare the dependencies to avoid pulling in bodyprog.h. */
+typedef int q19_12;
+extern q19_12 g_DeltaTime;
+extern void SysWork_StateStepIncrement(int);
+
+static inline q19_12 Q12_MULT_PRECISE_SW(q19_12 a, q19_12 b) {
+    return (q19_12)(((long long)a * b) >> 12);
+}
+#define Q12_MULT_PRECISE(a, b) Q12_MULT_PRECISE_SW(a, b)
+
+void SysWork_StateStepIncrementAfterTime(q19_12* timer, q19_12 timeInc,
+    q19_12 timeMin, q19_12 timeMax, int setTimerToMax, int incStateStep)
+{
+    if (*timer < timeMin) { *timer = timeMin; return; }
+    *timer += Q12_MULT_PRECISE(g_DeltaTime, timeInc);
+    if (*timer > timeMax) {
+        if (setTimerToMax) *timer = timeMax;
+        if (incStateStep) SysWork_StateStepIncrement(0);
+    }
+}
+#undef Q12_MULT_PRECISE
+
 #include <PsyX/PsyX_public.h>
 
 /* Globals that main_pc.c provides on other platforms */
