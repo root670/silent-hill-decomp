@@ -66,8 +66,10 @@ extern int g_perf_splits2d;
 extern int g_perf_verts2d;
 extern float g_perf_submit_ms;
 
-/* Texture cache eviction counter from PsyX_texcache.cpp. */
+/* Texture cache counters from PsyX_texcache.cpp. */
 extern int g_texCacheEvictions;
+extern int g_texCacheDecodes;
+extern int g_texCacheHits;
 
 /* Called from DrawAllSplits every ~180 calls (~3s) on the main thread. */
 extern void (*g_perf_callback)(int s3d, int v3d, int s2d, int v2d, float ms);
@@ -88,14 +90,17 @@ static void PerfCallback(int s3d, int v3d, int s2d, int v2d, float ms)
     int verts_total  = v3d + v2d;
 
     u32 gload = g_gpuLoad10;
-    char buf[192];
+    char buf[256];
     int n = snprintf(buf, sizeof(buf),
-        "[PERF] GPU=%u.%u%%  submit=%.2fms  splits=%d  verts=%d  tc_evict=%d\n",
+        "[PERF] GPU=%u.%u%%  submit=%.2fms  splits=%d  verts=%d  tc_hit=%d  tc_dec=%d  tc_evict=%d\n",
         gload / 10, gload % 10, (double)ms,
-        splits_total, verts_total, g_texCacheEvictions);
+        splits_total, verts_total,
+        g_texCacheHits, g_texCacheDecodes, g_texCacheEvictions);
     fwrite(buf, 1, n, stdout);
     fflush(stdout);
     if (s_perfLog) { fwrite(buf, 1, n, s_perfLog); fflush(s_perfLog); }
+    g_texCacheDecodes = 0;
+    g_texCacheHits = 0;
 }
 
 static void InitNvGpu(void)
