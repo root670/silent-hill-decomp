@@ -1,12 +1,14 @@
 #include <switch.h>
 #include <switch/runtime/nxlink.h>
 #include <switch/applets/error.h>
+#include <switch/services/nv.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#include <SDL.h>
 
 #include "fs_pc.h"
 #include "pc_config.h"
@@ -48,6 +50,74 @@ int   g_PcAllowDebugControls = 0;
 
 static int s_nxlinkSock = -1;
 static bool s_socketInit = false;
+
+/* GPU load monitoring via nvhost-ctrl-gpu PMU ioctl.
+ * Returns tenths-of-percent (0-1000). Returns 0 if unavailable. */
+#define NVGPU_GPU_IOCTL_PMU_GET_GPU_LOAD 0x80044715
+static u32 s_nvGpuFd = (u32)-1;
+static bool s_nvInit = false;
+/* Smoothed GPU load (tenths of percent, 0-1000). Written by stats thread. */
+volatile u32 g_gpuLoad10 = 0;
+
+/* Perf counters from PsyX_GPU.cpp — read-only here. */
+extern int g_perf_splits3d;
+extern int g_perf_verts3d;
+extern int g_perf_splits2d;
+extern int g_perf_verts2d;
+extern float g_perf_submit_ms;
+
+static Thread s_statsThread;
+static bool s_statsRunning = false;
+
+static void StatsThreadFunc(void* arg)
+{
+    (void)arg;
+    Uint64 freq = SDL_GetPerformanceFrequency();
+    Uint64 printAt = SDL_GetPerformanceCounter() + freq * 5;
+
+    while (s_statsRunning) {
+        svcSleepThread(200000000LL);  /* 200ms */
+
+        /* Read GPU load. */
+        if (s_nvGpuFd != (u32)-1) {
+            u32 load = 0;
+            nvIoctl(s_nvGpuFd, NVGPU_GPU_IOCTL_PMU_GET_GPU_LOAD, &load);
+            /* IIR α=0.3 */
+            g_gpuLoad10 = (g_gpuLoad10 * 7 + load * 3) / 10;
+        }
+
+        Uint64 now = SDL_GetPerformanceCounter();
+        if (now >= printAt) {
+            printAt = now + freq * 5;
+            u32 gload = g_gpuLoad10;
+            printf("[PERF] GPU=%u.%u%%  submit=%.2fms"
+                   "  3D: %d splits %d verts  2D: %d splits %d verts\n",
+                   gload / 10, gload % 10,
+                   (double)g_perf_submit_ms,
+                   g_perf_splits3d, g_perf_verts3d,
+                   g_perf_splits2d, g_perf_verts2d);
+            fflush(stdout);
+        }
+    }
+}
+
+static void InitNvGpu(void)
+{
+    if (R_SUCCEEDED(nvInitialize())) {
+        s_nvInit = true;
+        if (R_FAILED(nvOpen(&s_nvGpuFd, "/dev/nvhost-ctrl-gpu")))
+            s_nvGpuFd = (u32)-1;
+    }
+}
+
+static void ExitNvGpu(void)
+{
+    s_statsRunning = false;
+    threadWaitForExit(&s_statsThread);
+    threadClose(&s_statsThread);
+    if (s_nvGpuFd != (u32)-1) { nvClose(s_nvGpuFd); s_nvGpuFd = (u32)-1; }
+    if (s_nvInit) { nvExit(); s_nvInit = false; }
+}
 
 static void InitNxlink(void)
 {
@@ -180,6 +250,7 @@ const char* PcPort_GetGameDiscPath(void) { return s_discPath; }
 int main(int argc, char** argv)
 {
     InitNxlink();
+    InitNvGpu();
 
     /* PsyCross already printf()s to stdout unconditionally — no SetStream needed.
      * g_ShDebugLog stays NULL so SH_DBG is a no-op; per-frame debug spam over
@@ -265,12 +336,18 @@ int main(int argc, char** argv)
     /* Match output resolution to display mode: 1080p docked, 720p handheld. */
     int resW, resH;
     if (appletGetOperationMode() == AppletOperationMode_Console) {
-        resW = 1920; resH = 1080;
+        /* TEMPORARY: Task 0a profiling — force 720p docked to measure fragment-bound cost */
+        resW = 1280; resH = 720;
     } else {
         resW = 1280; resH = 720;
     }
 
     PsyX_Initialise("Silent Hill", resW, resH, 0);
+
+    /* Start stats thread after SDL init (needs SDL_GetPerformanceCounter). */
+    s_statsRunning = true;
+    threadCreate(&s_statsThread, StatsThreadFunc, NULL, NULL, 0x2000, 0x2C, 3);
+    threadStart(&s_statsThread);
 
     CharaData_ApplyRegionPatches();
 
@@ -286,6 +363,7 @@ int main(int argc, char** argv)
     MainLoop();
 
     PsyX_Shutdown();
+    ExitNvGpu();
     ExitNxlink();
     return 0;
 }
