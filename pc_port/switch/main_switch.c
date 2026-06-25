@@ -66,6 +66,9 @@ extern int g_perf_splits2d;
 extern int g_perf_verts2d;
 extern float g_perf_submit_ms;
 
+/* Texture cache eviction counter from PsyX_texcache.cpp. */
+extern int g_texCacheEvictions;
+
 /* Called from DrawAllSplits every ~180 calls (~3s) on the main thread. */
 extern void (*g_perf_callback)(int s3d, int v3d, int s2d, int v2d, float ms);
 
@@ -73,20 +76,23 @@ static FILE* s_perfLog = NULL;
 
 static void PerfCallback(int s3d, int v3d, int s2d, int v2d, float ms)
 {
-    /* Sample GPU load on the main thread — safe, no threading needed. */
     if (s_nvGpuFd != (u32)-1) {
         u32 load = 0;
         nvIoctl(s_nvGpuFd, NVGPU_GPU_IOCTL_PMU_GET_GPU_LOAD, &load);
         g_gpuLoad10 = (g_gpuLoad10 * 7 + load * 3) / 10;
     }
 
+    /* dfe=1 for all Silent Hill rendering (3D world included), so the
+     * dfe-based 3D/2D split is meaningless. Report total counts instead. */
+    int splits_total = s3d + s2d;
+    int verts_total  = v3d + v2d;
+
     u32 gload = g_gpuLoad10;
-    char buf[160];
+    char buf[192];
     int n = snprintf(buf, sizeof(buf),
-        "[PERF] GPU=%u.%u%%  submit=%.2fms"
-        "  3D: %d splits %d verts  2D: %d splits %d verts\n",
+        "[PERF] GPU=%u.%u%%  submit=%.2fms  splits=%d  verts=%d  tc_evict=%d\n",
         gload / 10, gload % 10, (double)ms,
-        s3d, v3d, s2d, v2d);
+        splits_total, verts_total, g_texCacheEvictions);
     fwrite(buf, 1, n, stdout);
     fflush(stdout);
     if (s_perfLog) { fwrite(buf, 1, n, s_perfLog); fflush(s_perfLog); }
