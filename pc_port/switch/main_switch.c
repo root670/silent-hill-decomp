@@ -56,8 +56,8 @@ static bool s_socketInit = false;
 #define NVGPU_GPU_IOCTL_PMU_GET_GPU_LOAD 0x80044715
 static u32 s_nvGpuFd = (u32)-1;
 static bool s_nvInit = false;
-/* Smoothed GPU load (tenths of percent, 0-1000). Written by stats thread. */
-volatile u32 g_gpuLoad10 = 0;
+/* Smoothed GPU load (tenths of percent, 0-1000). */
+static u32 g_gpuLoad10 = 0;
 
 /* Perf counters from PsyX_GPU.cpp — read-only here. */
 extern int g_perf_splits3d;
@@ -66,39 +66,30 @@ extern int g_perf_splits2d;
 extern int g_perf_verts2d;
 extern float g_perf_submit_ms;
 
-static Thread s_statsThread;
-static bool s_statsRunning = false;
+/* Called from DrawAllSplits every ~180 calls (~3s) on the main thread. */
+extern void (*g_perf_callback)(int s3d, int v3d, int s2d, int v2d, float ms);
 
-static void StatsThreadFunc(void* arg)
+static FILE* s_perfLog = NULL;
+
+static void PerfCallback(int s3d, int v3d, int s2d, int v2d, float ms)
 {
-    (void)arg;
-    Uint64 freq = SDL_GetPerformanceFrequency();
-    Uint64 printAt = SDL_GetPerformanceCounter() + freq * 5;
-
-    while (s_statsRunning) {
-        svcSleepThread(200000000LL);  /* 200ms */
-
-        /* Read GPU load. */
-        if (s_nvGpuFd != (u32)-1) {
-            u32 load = 0;
-            nvIoctl(s_nvGpuFd, NVGPU_GPU_IOCTL_PMU_GET_GPU_LOAD, &load);
-            /* IIR α=0.3 */
-            g_gpuLoad10 = (g_gpuLoad10 * 7 + load * 3) / 10;
-        }
-
-        Uint64 now = SDL_GetPerformanceCounter();
-        if (now >= printAt) {
-            printAt = now + freq * 5;
-            u32 gload = g_gpuLoad10;
-            printf("[PERF] GPU=%u.%u%%  submit=%.2fms"
-                   "  3D: %d splits %d verts  2D: %d splits %d verts\n",
-                   gload / 10, gload % 10,
-                   (double)g_perf_submit_ms,
-                   g_perf_splits3d, g_perf_verts3d,
-                   g_perf_splits2d, g_perf_verts2d);
-            fflush(stdout);
-        }
+    /* Sample GPU load on the main thread — safe, no threading needed. */
+    if (s_nvGpuFd != (u32)-1) {
+        u32 load = 0;
+        nvIoctl(s_nvGpuFd, NVGPU_GPU_IOCTL_PMU_GET_GPU_LOAD, &load);
+        g_gpuLoad10 = (g_gpuLoad10 * 7 + load * 3) / 10;
     }
+
+    u32 gload = g_gpuLoad10;
+    char buf[160];
+    int n = snprintf(buf, sizeof(buf),
+        "[PERF] GPU=%u.%u%%  submit=%.2fms"
+        "  3D: %d splits %d verts  2D: %d splits %d verts\n",
+        gload / 10, gload % 10, (double)ms,
+        s3d, v3d, s2d, v2d);
+    fwrite(buf, 1, n, stdout);
+    fflush(stdout);
+    if (s_perfLog) { fwrite(buf, 1, n, s_perfLog); fflush(s_perfLog); }
 }
 
 static void InitNvGpu(void)
@@ -112,9 +103,8 @@ static void InitNvGpu(void)
 
 static void ExitNvGpu(void)
 {
-    s_statsRunning = false;
-    threadWaitForExit(&s_statsThread);
-    threadClose(&s_statsThread);
+    g_perf_callback = NULL;
+    if (s_perfLog) { fclose(s_perfLog); s_perfLog = NULL; }
     if (s_nvGpuFd != (u32)-1) { nvClose(s_nvGpuFd); s_nvGpuFd = (u32)-1; }
     if (s_nvInit) { nvExit(); s_nvInit = false; }
 }
@@ -344,10 +334,8 @@ int main(int argc, char** argv)
 
     PsyX_Initialise("Silent Hill", resW, resH, 0);
 
-    /* Start stats thread after SDL init (needs SDL_GetPerformanceCounter). */
-    s_statsRunning = true;
-    threadCreate(&s_statsThread, StatsThreadFunc, NULL, NULL, 0x2000, 0x2C, 3);
-    threadStart(&s_statsThread);
+    s_perfLog = fopen("perf.log", "w");
+    g_perf_callback = PerfCallback;
 
     CharaData_ApplyRegionPatches();
 
