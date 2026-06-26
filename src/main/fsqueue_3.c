@@ -142,15 +142,6 @@ bool Fs_QueueTickSetLoc(s_FsQueueEntry* entry)
 #ifdef SH_PC_PORT
     /* PsyCross CdControl returns 0 for CdlSetloc even on success.
      * Call it for the side effect (seeking the file), then return true. */
-    {
-        static int setlocLog = 0;
-        if (setlocLog < 10) {
-            printf("[SH] Fs_QueueTickSetLoc: startSector=%d cdloc=(%02x:%02x:%02x)\n",
-                entry->info->startSector,
-                cdloc.minute, cdloc.second, cdloc.sector);
-            setlocLog++;
-        }
-    }
     CdControl(CdlSetloc, (u_char*)&cdloc, NULL);
     return true;
 #else
@@ -525,24 +516,8 @@ bool Fs_QueuePostLoadTim(s_FsQueueEntry* entry)
     int       discBitDepth = 0;
 #endif
 
-#ifdef SH_PC_PORT
-    { extern FILE* g_ShDebugLog; if (g_ShDebugLog) {
-        char _fnm[16] = {0};
-        int _fidx = (entry->info >= &g_FileTable[0] && entry->info < &g_FileTable[FS_FILE_COUNT])
-                        ? (int)(entry->info - &g_FileTable[0]) : -1;
-        if (_fidx >= 0) Fs_GetFileInfoName(_fnm, entry->info);
-        fprintf(g_ShDebugLog, "[BOOT0/TIM] PostLoadTim file=%d '%s' ss=0x%x img.u=%u img.v=%u tPage=%u,%u clutX=%d clutY=%d\n",
-        _fidx, _fnm, _fidx >= 0 ? (unsigned)entry->info->startSector : 0u,
-        (unsigned)entry->extra.image.u, (unsigned)entry->extra.image.v,
-        (unsigned)entry->extra.image.tPage[0], (unsigned)entry->extra.image.tPage[1],
-        (int)entry->extra.image.clutX, (int)entry->extra.image.clutY); fflush(g_ShDebugLog); } }
-#endif
     OpenTIM((u64*)entry->externalData);
     ReadTIM(&tim);
-#ifdef SH_PC_PORT
-    { extern FILE* g_ShDebugLog; if (g_ShDebugLog) { fprintf(g_ShDebugLog, "[BOOT0/TIM] post ReadTIM: prect=%p caddr=%p paddr=%p mode=%u\n",
-        (void*)tim.prect, (void*)tim.caddr, (void*)tim.paddr, (unsigned)tim.mode); fflush(g_ShDebugLog); } }
-#endif
 
     tempRect = *tim.prect;
     if (entry->extra.image.u != UCHAR_MAX)
@@ -555,11 +530,6 @@ bool Fs_QueuePostLoadTim(s_FsQueueEntry* entry)
         // Same as `tempRect.y = (entry->extra.image.tPage & 0x10) * 16` for normal tPage.
         tempRect.y = entry->extra.image.v + ((entry->extra.image.tPage[1] << 4) & 0x100);
     }
-#ifdef SH_PC_PORT
-    { extern FILE* g_ShDebugLog; if (g_ShDebugLog) { fprintf(g_ShDebugLog, "[BOOT0/TIM] pre pixel LoadImage rect=(%d,%d %dx%d)\n",
-        (int)tempRect.x, (int)tempRect.y, (int)tempRect.w, (int)tempRect.h); fflush(g_ShDebugLog); } }
-#endif
-
     LoadImage(&tempRect, tim.paddr);
 #ifdef SH_PC_PORT
     pixelRect = tempRect;
@@ -579,11 +549,6 @@ bool Fs_QueuePostLoadTim(s_FsQueueEntry* entry)
             tempRect.x = entry->extra.image.clutX;
             tempRect.y = entry->extra.image.clutY;
         }
-#ifdef SH_PC_PORT
-        { extern FILE* g_ShDebugLog; if (g_ShDebugLog) { fprintf(g_ShDebugLog, "[BOOT0/TIM] pre CLUT LoadImage rect=(%d,%d %dx%d)\n",
-            (int)tempRect.x, (int)tempRect.y, (int)tempRect.w, (int)tempRect.h); fflush(g_ShDebugLog); } }
-#endif
-
         LoadImage(&tempRect, tim.caddr);
 #ifdef SH_PC_PORT
         clutRect = tempRect;
@@ -591,8 +556,6 @@ bool Fs_QueuePostLoadTim(s_FsQueueEntry* entry)
 #endif
     }
 #ifdef SH_PC_PORT
-    { extern FILE* g_ShDebugLog; if (g_ShDebugLog) { fprintf(g_ShDebugLog, "[BOOT0/TIM] PostLoadTim done\n"); fflush(g_ShDebugLog); } }
-
     /* Hi-res override: if Fs_QueueTickRead detected a loose TIM bigger than
      * the disc buffer, register it now with the rects we just used for the
      * native upload. Sample-time lookup will key by (tpage, clut), which

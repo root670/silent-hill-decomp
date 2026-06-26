@@ -1,7 +1,4 @@
 #include "main/fsqueue.h"
-#ifdef SH_PC_PORT
-#include <stdio.h>
-#endif
 
 #include <psyq/libcd.h>
 
@@ -73,7 +70,15 @@ bool Fs_QueueUpdateRead(s_FsQueueEntry* entry)
         // Check how read is going.
         case FsQueueReadState_Sync:
         {
+#ifdef SH_PC_PORT
+            /* On PSX, CdReadSync(mode=1) reads one sector per call, gated by one
+             * vsync per sector. On PC, Fs_QueueUpdate runs once per frame at 60fps —
+             * one sector per frame means N frames for an N-sector file (617ms for a
+             * 37-sector KONAMI.TIM). mode=0 drains all sectors in a single call. */
+            switch (CdReadSync(0, NULL))
+#else
             switch (CdReadSync(1, NULL))
+#endif
             {
                 // `CdReadSync` failed, reset CD.
                 case NO_VALUE:

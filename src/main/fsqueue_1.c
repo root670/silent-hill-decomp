@@ -66,10 +66,25 @@ void Fs_QueueWaitForEmpty(void)
     func_80089128();
 
 #ifdef SH_PC_PORT
+    /* CdReadSync(mode=1) reads one sector per call and returns the remaining
+     * count. The PSX loop gates one Fs_QueueUpdate() per vsync, which burns
+     * one vsync per sector — seconds of stall for large files. On PC the disc
+     * image read is synchronous and near-instant, so spin without vsync. */
     {
-        extern int g_TickCount;
-        int waitCount = 0;
-#endif
+        int spinCount = 0;
+        while (Fs_QueueGetLength() > 0)
+        {
+            Fs_QueueUpdate();
+            if (++spinCount > 100000) {
+                SH_DBG("[FSQ] WaitForEmpty TIMEOUT after %d spins — forcing queue empty (len=%d state=%d)",
+                       spinCount, (int)Fs_QueueGetLength(), (int)g_FsQueue.state);
+                g_FsQueue.read.idx     = g_FsQueue.last.idx + 1;
+                g_FsQueue.postLoad.idx = g_FsQueue.read.idx;
+                break;
+            }
+        }
+    }
+#else
     while (true)
     {
         VSync(SyncMode_Wait);
@@ -77,24 +92,7 @@ void Fs_QueueWaitForEmpty(void)
         {
             break;
         }
-
-#ifdef SH_PC_PORT
-        waitCount++;
-        if (waitCount > 500) {
-            /* Force the queue empty to prevent infinite loop */
-            extern FILE* g_ShDebugLog;
-            SH_DBG("[FSQ] WaitForEmpty TIMEOUT after %d vsyncs — forcing queue empty (len=%d state=%d)",
-                   waitCount, (int)Fs_QueueGetLength(), (int)g_FsQueue.state);
-            if (g_ShDebugLog) fflush(g_ShDebugLog);
-            g_FsQueue.read.idx = g_FsQueue.last.idx + 1;
-            g_FsQueue.postLoad.idx = g_FsQueue.read.idx;
-            break;
-        }
-#endif
         Fs_QueueUpdate();
-    }
-
-#ifdef SH_PC_PORT
     }
 #endif
     func_800892A4(1);

@@ -116,7 +116,11 @@ void GameState_KonamiLogo_Update(void) // 0x800C95AC
 
         BootScreen_KonamiScreenDraw();
         Screen_FadeUpdate();
+#ifdef SH_PC_PORT
+        while (Fs_QueueGetLength() > 0) Fs_QueueUpdate();
+#else
         Fs_QueueUpdate();
+#endif
         MemCard_Update();
         func_80033548();
         nullsub_800334C8();
@@ -459,7 +463,11 @@ void GameState_KcetLogo_Update(void) // 0x800C99A4
 
         BootScreen_KcetScreenDraw();
         Screen_FadeUpdate();
+#ifdef SH_PC_PORT
+        while (Fs_QueueGetLength() > 0) Fs_QueueUpdate();
+#else
         Fs_QueueUpdate();
+#endif
         MemCard_Update();
         func_80033548();
         nullsub_800334C8();

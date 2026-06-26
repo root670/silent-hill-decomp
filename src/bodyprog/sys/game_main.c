@@ -1514,9 +1514,12 @@ void MainLoop(void) // 0x80032EE0
          * yet stubbed in PsyCross, a state-machine bug) blocks the
          * file queue, which in turn blocks inventory opening
          * (Fs_QueueChunksLoad never returns true), room transitions,
-         * and DMS chunk loads. Tick the queue every frame on PC. */
+         * and DMS chunk loads.
+         * Drain the queue fully each frame on PC: file reads are
+         * synchronous (SSD, <1ms), so spending 5 frames (one per
+         * read-state) on each file is pure stall. */
         ML_TRACE("Fs_QueueUpdate");
-        Fs_QueueUpdate();
+        while (Fs_QueueGetLength() > 0) Fs_QueueUpdate();
 #else
         if (!Sd_AudioStreamingCheck())
         {
