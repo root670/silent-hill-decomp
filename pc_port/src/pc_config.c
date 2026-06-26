@@ -16,6 +16,7 @@ s_PcConfig g_PcConfig = {
     .fpsCap         = 30,
     .skipIntros     = 0,
     .showConsole    = 0,
+    .showFps        = 0, /* onscreen FPS monitor */
     .psxDither      = 1, /* 0=off, 1=PSX dither, 2=bilinear */
     .widescreenMode  = 1, /* 0=pillarbox, 1=Hor+ (default, no bars + correct proportions), 2=stretch */
     .menuPillarbox   = 1, /* 1=pillarbox 2D screens (black bars), 0=stretch to fill */
@@ -257,6 +258,10 @@ void PcConfig_Load(const char* path)
             int v = atoi(value);
             if (v < 0 || v > 3) v = 0;
             g_PcConfig.showConsole = v;
+        }
+        else if (strcmp(key, "show_fps") == 0)
+        {
+            g_PcConfig.showFps = (atoi(value) != 0);
         }
         else if (strcmp(key, "psx_dither") == 0)
         {

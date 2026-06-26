@@ -15,8 +15,8 @@
 
 #include <PsyX/common/glad.h>
 
-extern int g_windowWidth;
-extern int g_windowHeight;
+extern int  g_windowWidth;
+extern int  g_windowHeight;
 extern void vcGetNowCamPos(VECTOR3* cam_pos);
 extern void Collision_SurfaceGet(s_CollisionSurface* coll, q19_12 posX, q19_12 posZ);
 
@@ -34,14 +34,14 @@ extern int g_DebugAnimKfMax;
 #define GLYPH_H     8
 #define SCALE       2
 
-#define TEX_W (LINE_LEN * GLYPH_W)            /* 512 */
-#define TEX_H ((MAX_CONSOLE + 1) * GLYPH_H)   /* +1 row for the input prompt */
+#define TEX_W (LINE_LEN * GLYPH_W)          /* 512 */
+#define TEX_H ((MAX_CONSOLE + 1) * GLYPH_H) /* +1 row for the input prompt */
 
 static char s_console[MAX_CONSOLE][LINE_LEN];
-static int  s_console_count  = 0;
-static int  s_console_dirty  = 0;
-static int  s_prev_a = 0;
-static int  s_prev_b = 0;
+static int  s_console_count = 0;
+static int  s_console_dirty = 0;
+static int  s_prev_a        = 0;
+static int  s_prev_b        = 0;
 
 /* ---- Interactive console input mode (Half-Life style) ----
  * Hold `~` (≥350 ms) while the console is open to get a "> _" prompt under
@@ -58,27 +58,28 @@ int g_PcConsoleInputActive = 0;
  * controller input while this or input mode is active. */
 int g_PcConsoleSwallowInput = 0;
 
-#define CONSOLE_HOLD_MS  350
-#define INPUT_BUF_CAP    (LINE_LEN - 4) /* room for "> " + "_" */
-static char          s_input_buf[INPUT_BUF_CAP];
-static int           s_input_len = 0;
-static Uint32        s_tilde_down_ms = 0;
+#define CONSOLE_HOLD_MS 350
+#define INPUT_BUF_CAP   (LINE_LEN - 4) /* room for "> " + "_" */
+static char   s_input_buf[INPUT_BUF_CAP];
+static int    s_input_len     = 0;
+static Uint32 s_tilde_down_ms = 0;
 
 /* Console command history: Up/Down recall recently entered commands. */
 #define CONSOLE_HIST_MAX 8
 static char s_hist[CONSOLE_HIST_MAX][INPUT_BUF_CAP];
-static int  s_hist_count = 0;   /* number stored (<= MAX)                          */
-static int  s_hist_write = 0;   /* next circular write slot                        */
-static int  s_hist_nav   = -1;  /* -1 = live edit; 0 = newest .. count-1 = oldest  */
-static char s_hist_edit[INPUT_BUF_CAP];  /* live input parked while browsing       */
-static void Console_LoadHist(int nav) {
+static int  s_hist_count = 0;           /* number stored (<= MAX)                          */
+static int  s_hist_write = 0;           /* next circular write slot                        */
+static int  s_hist_nav   = -1;          /* -1 = live edit; 0 = newest .. count-1 = oldest  */
+static char s_hist_edit[INPUT_BUF_CAP]; /* live input parked while browsing       */
+static void Console_LoadHist(int nav)
+{
     int idx = (s_hist_write - 1 - nav + 2 * CONSOLE_HIST_MAX) % CONSOLE_HIST_MAX;
     strncpy(s_input_buf, s_hist[idx], INPUT_BUF_CAP - 1);
     s_input_buf[INPUT_BUF_CAP - 1] = '\0';
-    s_input_len = (int)strlen(s_input_buf);
+    s_input_len                    = (int)strlen(s_input_buf);
 }
 static int           s_tilde_hold_done = 0; /* hold already toggled the view this press */
-static unsigned char s_prev_keys[128]; /* must cover arrow keys (scancodes 79-82) */
+static unsigned char s_prev_keys[128];      /* must cover arrow keys (scancodes 79-82) */
 
 /* Slide animation: 0 = fully off-screen above the top edge, 1 = at rest.
  * Eased toward the target each frame in DbgOverlay_Update; the continuous value
@@ -93,12 +94,27 @@ static float s_console_slide = 0.0f;
 static unsigned s_console_apply_until = 0;
 
 /* GL overlay resources, initialised once on first Render call */
-static GLuint s_prog = 0;
-static GLuint s_vao  = 0;
-static GLuint s_vbo  = 0;
-static GLuint s_tex  = 0;
-static GLint  s_u_tex = -1;
+static GLuint s_prog      = 0;
+static GLuint s_vao       = 0;
+static GLuint s_vbo       = 0;
+static GLuint s_tex       = 0;
+static GLint  s_u_tex     = -1;
 static int    s_gl_inited = 0;
+
+/* ---- Onscreen FPS / frame-time monitor (config: show_fps) ----
+ * EMA-smoothed over consecutive DbgOverlay_Update ticks. Drawn top-right via
+ * the shared glyph program. On Switch it also reports the Tegra GPU load that
+ * main_switch.c's PMU callback already tracks. */
+#define FPS_COLS  28
+#define FPS_TEX_W (FPS_COLS * GLYPH_W)
+#define FPS_TEX_H GLYPH_H
+static GLuint s_fps_tex      = 0;
+static Uint64 s_fps_lastTick = 0;
+static float  s_fps          = 0.0f; /* EMA frames/sec   */
+static float  s_framems      = 0.0f; /* EMA frame time ms */
+#ifdef __SWITCH__
+extern unsigned int g_gpuLoad10;     /* tenths of %, from main_switch.c PMU callback */
+#endif
 
 /* ---- Collision visualizer panel (toggled by ') ----
  * A fixed live panel (bottom-right) that queries the floor-collision function
@@ -133,8 +149,8 @@ static GLuint s_anim_tex   = 0;
 /* ---- Collision wireframe: world-space segments captured during the frame's
  * collision pass, projected and drawn as GL lines (no depth test → visible
  * through walls, RE4-style). Cleared after each render. ---- */
-extern MATRIX VbWvsMatrix;          /* world->view rotation (Q12), vw_calc.c */
-extern long   ReadGeomScreen(void); /* GTE projection distance H */
+extern MATRIX VbWvsMatrix;                               /* world->view rotation (Q12), vw_calc.c */
+extern long   ReadGeomScreen(void);                      /* GTE projection distance H */
 extern void   CollVis_CaptureCell(q19_12 px, q19_12 pz); /* full-cell wall capture, collision.c */
 
 #define CV_MAX_SEGS 2048
@@ -143,7 +159,11 @@ extern void   CollVis_CaptureCell(q19_12 px, q19_12 pz); /* full-cell wall captu
 /* worst-case GL vertices: cell segs + hit segs (1 line) + cylinders (12-edge box)
  * + per-frame hit cylinders (32, 12-edge box). */
 #define CV_VERT_CAP (((CV_MAX_SEGS + CV_MAX_HITS) * 2) + (CV_MAX_CYLS * 12 * 2) + (32 * 12 * 2))
-typedef struct { s32 ax, ay, az, bx, by, bz; int hit; } s_CvSeg;
+typedef struct
+{
+    s32 ax, ay, az, bx, by, bz;
+    int hit;
+} s_CvSeg;
 
 /* Cell geometry (green) — cached; only re-walked when Harry's collision cell
  * changes (CollVis_ClearCell). Re-projected every frame, but not re-iterated. */
@@ -156,7 +176,10 @@ static int     s_cvHitCount = 0;
 
 /* ptr_18 cylinder colliders (trees/poles): center + radius, drawn as a box.
  * Cached with the cell geometry. */
-typedef struct { s32 cx, cy, cz, r; } s_CvCyl;
+typedef struct
+{
+    s32 cx, cy, cz, r;
+} s_CvCyl;
 static s_CvCyl s_cvCyls[CV_MAX_CYLS];
 static int     s_cvCylCount = 0;
 static s32     s_cvFloorY   = 0; /* player ground Y (Q12), box base for cylinders */
@@ -170,12 +193,12 @@ static s_CvCyl s_cvHitCyls[CV_MAX_HITCYLS];
 static int     s_cvHitCylCount = 0;
 
 /* collState snapshot from the player's func_8006A4A8 pass (filled by collision.c). */
-s_CollStateDbg g_CollStateDbg = {0};
+s_CollStateDbg g_CollStateDbg = { 0 };
 
 /* GL line resources */
-static GLuint  s_line_prog = 0;
-static GLuint  s_line_vao  = 0;
-static GLuint  s_line_vbo  = 0;
+static GLuint s_line_prog = 0;
+static GLuint s_line_vao  = 0;
+static GLuint s_line_vbo  = 0;
 
 /* Cell geometry segment (green). hit param kept for signature stability; cell
  * segs are always non-contacting (contacts go to CollVis_CaptureHit). */
@@ -183,8 +206,12 @@ void CollVis_CaptureSeg(s32 ax, s32 ay, s32 az, s32 bx, s32 by, s32 bz, int hit)
 {
     if (s_cvSegCount >= CV_MAX_SEGS)
         return;
-    s_cvSegs[s_cvSegCount].ax = ax; s_cvSegs[s_cvSegCount].ay = ay; s_cvSegs[s_cvSegCount].az = az;
-    s_cvSegs[s_cvSegCount].bx = bx; s_cvSegs[s_cvSegCount].by = by; s_cvSegs[s_cvSegCount].bz = bz;
+    s_cvSegs[s_cvSegCount].ax  = ax;
+    s_cvSegs[s_cvSegCount].ay  = ay;
+    s_cvSegs[s_cvSegCount].az  = az;
+    s_cvSegs[s_cvSegCount].bx  = bx;
+    s_cvSegs[s_cvSegCount].by  = by;
+    s_cvSegs[s_cvSegCount].bz  = bz;
     s_cvSegs[s_cvSegCount].hit = hit;
     s_cvSegCount++;
 }
@@ -194,8 +221,12 @@ void CollVis_CaptureHit(s32 ax, s32 ay, s32 az, s32 bx, s32 by, s32 bz)
 {
     if (s_cvHitCount >= CV_MAX_HITS)
         return;
-    s_cvHits[s_cvHitCount].ax = ax; s_cvHits[s_cvHitCount].ay = ay; s_cvHits[s_cvHitCount].az = az;
-    s_cvHits[s_cvHitCount].bx = bx; s_cvHits[s_cvHitCount].by = by; s_cvHits[s_cvHitCount].bz = bz;
+    s_cvHits[s_cvHitCount].ax  = ax;
+    s_cvHits[s_cvHitCount].ay  = ay;
+    s_cvHits[s_cvHitCount].az  = az;
+    s_cvHits[s_cvHitCount].bx  = bx;
+    s_cvHits[s_cvHitCount].by  = by;
+    s_cvHits[s_cvHitCount].bz  = bz;
     s_cvHits[s_cvHitCount].hit = 1;
     s_cvHitCount++;
 }
@@ -204,8 +235,10 @@ void CollVis_CaptureCylinder(s32 cx, s32 cy, s32 cz, s32 r)
 {
     if (s_cvCylCount >= CV_MAX_CYLS)
         return;
-    s_cvCyls[s_cvCylCount].cx = cx; s_cvCyls[s_cvCylCount].cy = cy;
-    s_cvCyls[s_cvCylCount].cz = cz; s_cvCyls[s_cvCylCount].r  = r;
+    s_cvCyls[s_cvCylCount].cx = cx;
+    s_cvCyls[s_cvCylCount].cy = cy;
+    s_cvCyls[s_cvCylCount].cz = cz;
+    s_cvCyls[s_cvCylCount].r  = r;
     s_cvCylCount++;
 }
 
@@ -215,8 +248,10 @@ void CollVis_CaptureHitCylinder(s32 cx, s32 cy, s32 cz, s32 r)
 {
     if (s_cvHitCylCount >= CV_MAX_HITCYLS)
         return;
-    s_cvHitCyls[s_cvHitCylCount].cx = cx; s_cvHitCyls[s_cvHitCylCount].cy = cy;
-    s_cvHitCyls[s_cvHitCylCount].cz = cz; s_cvHitCyls[s_cvHitCylCount].r  = r;
+    s_cvHitCyls[s_cvHitCylCount].cx = cx;
+    s_cvHitCyls[s_cvHitCylCount].cy = cy;
+    s_cvHitCyls[s_cvHitCylCount].cz = cz;
+    s_cvHitCyls[s_cvHitCylCount].r  = r;
     s_cvHitCylCount++;
 }
 
@@ -232,101 +267,101 @@ void CollVis_ClearCell(void)
  * One byte per row, MSB = leftmost pixel.
  * Chars below 0x20 and above 0x7E are left zeroed (blank). */
 static const unsigned char s_font[128][8] = {
-    [0x20] = {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00},
-    [0x21] = {0x18,0x3C,0x3C,0x18,0x18,0x00,0x18,0x00},
-    [0x22] = {0x36,0x36,0x00,0x00,0x00,0x00,0x00,0x00},
-    [0x23] = {0x36,0x36,0x7F,0x36,0x7F,0x36,0x36,0x00},
-    [0x24] = {0x0C,0x3E,0x03,0x1E,0x30,0x1F,0x0C,0x00},
-    [0x25] = {0x00,0x63,0x33,0x18,0x0C,0x66,0x63,0x00},
-    [0x26] = {0x1C,0x36,0x1C,0x6E,0x3B,0x33,0x6E,0x00},
-    [0x27] = {0x06,0x06,0x03,0x00,0x00,0x00,0x00,0x00},
-    [0x28] = {0x18,0x0C,0x06,0x06,0x06,0x0C,0x18,0x00},
-    [0x29] = {0x06,0x0C,0x18,0x18,0x18,0x0C,0x06,0x00},
-    [0x2A] = {0x00,0x66,0x3C,0xFF,0x3C,0x66,0x00,0x00},
-    [0x2B] = {0x00,0x0C,0x0C,0x3F,0x0C,0x0C,0x00,0x00},
-    [0x2C] = {0x00,0x00,0x00,0x00,0x00,0x0C,0x0C,0x06},
-    [0x2D] = {0x00,0x00,0x00,0x3F,0x00,0x00,0x00,0x00},
-    [0x2E] = {0x00,0x00,0x00,0x00,0x00,0x0C,0x0C,0x00},
-    [0x2F] = {0x60,0x30,0x18,0x0C,0x06,0x03,0x01,0x00},
-    [0x30] = {0x3E,0x63,0x73,0x7B,0x6F,0x67,0x3E,0x00},
-    [0x31] = {0x0C,0x0E,0x0C,0x0C,0x0C,0x0C,0x3F,0x00},
-    [0x32] = {0x1E,0x33,0x30,0x1C,0x06,0x33,0x3F,0x00},
-    [0x33] = {0x1E,0x33,0x30,0x1C,0x30,0x33,0x1E,0x00},
-    [0x34] = {0x38,0x3C,0x36,0x33,0x7F,0x30,0x78,0x00},
-    [0x35] = {0x3F,0x03,0x1F,0x30,0x30,0x33,0x1E,0x00},
-    [0x36] = {0x1C,0x06,0x03,0x1F,0x33,0x33,0x1E,0x00},
-    [0x37] = {0x3F,0x33,0x30,0x18,0x0C,0x0C,0x0C,0x00},
-    [0x38] = {0x1E,0x33,0x33,0x1E,0x33,0x33,0x1E,0x00},
-    [0x39] = {0x1E,0x33,0x33,0x3E,0x30,0x18,0x0E,0x00},
-    [0x3A] = {0x00,0x0C,0x0C,0x00,0x00,0x0C,0x0C,0x00},
-    [0x3B] = {0x00,0x0C,0x0C,0x00,0x00,0x0C,0x0C,0x06},
-    [0x3C] = {0x18,0x0C,0x06,0x03,0x06,0x0C,0x18,0x00},
-    [0x3D] = {0x00,0x00,0x3F,0x00,0x00,0x3F,0x00,0x00},
-    [0x3E] = {0x06,0x0C,0x18,0x30,0x18,0x0C,0x06,0x00},
-    [0x3F] = {0x1E,0x33,0x30,0x18,0x0C,0x00,0x0C,0x00},
-    [0x40] = {0x3E,0x63,0x7B,0x7B,0x7B,0x03,0x1E,0x00},
-    [0x41] = {0x0C,0x1E,0x33,0x33,0x3F,0x33,0x33,0x00},
-    [0x42] = {0x3F,0x66,0x66,0x3E,0x66,0x66,0x3F,0x00},
-    [0x43] = {0x3C,0x66,0x03,0x03,0x03,0x66,0x3C,0x00},
-    [0x44] = {0x1F,0x36,0x66,0x66,0x66,0x36,0x1F,0x00},
-    [0x45] = {0x7F,0x46,0x16,0x1E,0x16,0x46,0x7F,0x00},
-    [0x46] = {0x7F,0x46,0x16,0x1E,0x16,0x06,0x0F,0x00},
-    [0x47] = {0x3C,0x66,0x03,0x03,0x73,0x66,0x7C,0x00},
-    [0x48] = {0x33,0x33,0x33,0x3F,0x33,0x33,0x33,0x00},
-    [0x49] = {0x1E,0x0C,0x0C,0x0C,0x0C,0x0C,0x1E,0x00},
-    [0x4A] = {0x78,0x30,0x30,0x30,0x33,0x33,0x1E,0x00},
-    [0x4B] = {0x67,0x66,0x36,0x1E,0x36,0x66,0x67,0x00},
-    [0x4C] = {0x0F,0x06,0x06,0x06,0x46,0x66,0x7F,0x00},
-    [0x4D] = {0x63,0x77,0x7F,0x7F,0x6B,0x63,0x63,0x00},
-    [0x4E] = {0x63,0x67,0x6F,0x7B,0x73,0x63,0x63,0x00},
-    [0x4F] = {0x1C,0x36,0x63,0x63,0x63,0x36,0x1C,0x00},
-    [0x50] = {0x3F,0x66,0x66,0x3E,0x06,0x06,0x0F,0x00},
-    [0x51] = {0x1E,0x33,0x33,0x33,0x3B,0x1E,0x38,0x00},
-    [0x52] = {0x3F,0x66,0x66,0x3E,0x36,0x66,0x67,0x00},
-    [0x53] = {0x1E,0x33,0x07,0x0E,0x38,0x33,0x1E,0x00},
-    [0x54] = {0x3F,0x2D,0x0C,0x0C,0x0C,0x0C,0x1E,0x00},
-    [0x55] = {0x33,0x33,0x33,0x33,0x33,0x33,0x3F,0x00},
-    [0x56] = {0x33,0x33,0x33,0x33,0x33,0x1E,0x0C,0x00},
-    [0x57] = {0x63,0x63,0x63,0x6B,0x7F,0x77,0x63,0x00},
-    [0x58] = {0x63,0x63,0x36,0x1C,0x1C,0x36,0x63,0x00},
-    [0x59] = {0x33,0x33,0x33,0x1E,0x0C,0x0C,0x1E,0x00},
-    [0x5A] = {0x7F,0x63,0x31,0x18,0x4C,0x66,0x7F,0x00},
-    [0x5B] = {0x1E,0x06,0x06,0x06,0x06,0x06,0x1E,0x00},
-    [0x5C] = {0x03,0x06,0x0C,0x18,0x30,0x60,0x40,0x00},
-    [0x5D] = {0x1E,0x18,0x18,0x18,0x18,0x18,0x1E,0x00},
-    [0x5E] = {0x08,0x1C,0x36,0x63,0x00,0x00,0x00,0x00},
-    [0x5F] = {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xFF},
-    [0x60] = {0x0C,0x0C,0x18,0x00,0x00,0x00,0x00,0x00},
-    [0x61] = {0x00,0x00,0x1E,0x30,0x3E,0x33,0x6E,0x00},
-    [0x62] = {0x07,0x06,0x06,0x3E,0x66,0x66,0x3B,0x00},
-    [0x63] = {0x00,0x00,0x1E,0x33,0x03,0x33,0x1E,0x00},
-    [0x64] = {0x38,0x30,0x30,0x3E,0x33,0x33,0x6E,0x00},
-    [0x65] = {0x00,0x00,0x1E,0x33,0x3F,0x03,0x1E,0x00},
-    [0x66] = {0x1C,0x36,0x06,0x0F,0x06,0x06,0x0F,0x00},
-    [0x67] = {0x00,0x00,0x6E,0x33,0x33,0x3E,0x30,0x1F},
-    [0x68] = {0x07,0x06,0x36,0x6E,0x66,0x66,0x67,0x00},
-    [0x69] = {0x0C,0x00,0x0E,0x0C,0x0C,0x0C,0x1E,0x00},
-    [0x6A] = {0x30,0x00,0x30,0x30,0x30,0x33,0x33,0x1E},
-    [0x6B] = {0x07,0x06,0x66,0x36,0x1E,0x36,0x67,0x00},
-    [0x6C] = {0x0E,0x0C,0x0C,0x0C,0x0C,0x0C,0x1E,0x00},
-    [0x6D] = {0x00,0x00,0x33,0x7F,0x7F,0x6B,0x63,0x00},
-    [0x6E] = {0x00,0x00,0x1F,0x33,0x33,0x33,0x33,0x00},
-    [0x6F] = {0x00,0x00,0x1E,0x33,0x33,0x33,0x1E,0x00},
-    [0x70] = {0x00,0x00,0x3B,0x66,0x66,0x3E,0x06,0x0F},
-    [0x71] = {0x00,0x00,0x6E,0x33,0x33,0x3E,0x30,0x78},
-    [0x72] = {0x00,0x00,0x3B,0x6E,0x66,0x06,0x0F,0x00},
-    [0x73] = {0x00,0x00,0x3E,0x03,0x1E,0x30,0x1F,0x00},
-    [0x74] = {0x08,0x0C,0x3E,0x0C,0x0C,0x2C,0x18,0x00},
-    [0x75] = {0x00,0x00,0x33,0x33,0x33,0x33,0x6E,0x00},
-    [0x76] = {0x00,0x00,0x33,0x33,0x33,0x1E,0x0C,0x00},
-    [0x77] = {0x00,0x00,0x63,0x6B,0x7F,0x7F,0x36,0x00},
-    [0x78] = {0x00,0x00,0x63,0x36,0x1C,0x36,0x63,0x00},
-    [0x79] = {0x00,0x00,0x33,0x33,0x33,0x3E,0x30,0x1F},
-    [0x7A] = {0x00,0x00,0x3F,0x19,0x0C,0x26,0x3F,0x00},
-    [0x7B] = {0x38,0x0C,0x0C,0x07,0x0C,0x0C,0x38,0x00},
-    [0x7C] = {0x18,0x18,0x18,0x00,0x18,0x18,0x18,0x00},
-    [0x7D] = {0x07,0x0C,0x0C,0x38,0x0C,0x0C,0x07,0x00},
-    [0x7E] = {0x6E,0x3B,0x00,0x00,0x00,0x00,0x00,0x00},
+    [0x20] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 },
+    [0x21] = { 0x18, 0x3C, 0x3C, 0x18, 0x18, 0x00, 0x18, 0x00 },
+    [0x22] = { 0x36, 0x36, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 },
+    [0x23] = { 0x36, 0x36, 0x7F, 0x36, 0x7F, 0x36, 0x36, 0x00 },
+    [0x24] = { 0x0C, 0x3E, 0x03, 0x1E, 0x30, 0x1F, 0x0C, 0x00 },
+    [0x25] = { 0x00, 0x63, 0x33, 0x18, 0x0C, 0x66, 0x63, 0x00 },
+    [0x26] = { 0x1C, 0x36, 0x1C, 0x6E, 0x3B, 0x33, 0x6E, 0x00 },
+    [0x27] = { 0x06, 0x06, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00 },
+    [0x28] = { 0x18, 0x0C, 0x06, 0x06, 0x06, 0x0C, 0x18, 0x00 },
+    [0x29] = { 0x06, 0x0C, 0x18, 0x18, 0x18, 0x0C, 0x06, 0x00 },
+    [0x2A] = { 0x00, 0x66, 0x3C, 0xFF, 0x3C, 0x66, 0x00, 0x00 },
+    [0x2B] = { 0x00, 0x0C, 0x0C, 0x3F, 0x0C, 0x0C, 0x00, 0x00 },
+    [0x2C] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x0C, 0x06 },
+    [0x2D] = { 0x00, 0x00, 0x00, 0x3F, 0x00, 0x00, 0x00, 0x00 },
+    [0x2E] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x0C, 0x00 },
+    [0x2F] = { 0x60, 0x30, 0x18, 0x0C, 0x06, 0x03, 0x01, 0x00 },
+    [0x30] = { 0x3E, 0x63, 0x73, 0x7B, 0x6F, 0x67, 0x3E, 0x00 },
+    [0x31] = { 0x0C, 0x0E, 0x0C, 0x0C, 0x0C, 0x0C, 0x3F, 0x00 },
+    [0x32] = { 0x1E, 0x33, 0x30, 0x1C, 0x06, 0x33, 0x3F, 0x00 },
+    [0x33] = { 0x1E, 0x33, 0x30, 0x1C, 0x30, 0x33, 0x1E, 0x00 },
+    [0x34] = { 0x38, 0x3C, 0x36, 0x33, 0x7F, 0x30, 0x78, 0x00 },
+    [0x35] = { 0x3F, 0x03, 0x1F, 0x30, 0x30, 0x33, 0x1E, 0x00 },
+    [0x36] = { 0x1C, 0x06, 0x03, 0x1F, 0x33, 0x33, 0x1E, 0x00 },
+    [0x37] = { 0x3F, 0x33, 0x30, 0x18, 0x0C, 0x0C, 0x0C, 0x00 },
+    [0x38] = { 0x1E, 0x33, 0x33, 0x1E, 0x33, 0x33, 0x1E, 0x00 },
+    [0x39] = { 0x1E, 0x33, 0x33, 0x3E, 0x30, 0x18, 0x0E, 0x00 },
+    [0x3A] = { 0x00, 0x0C, 0x0C, 0x00, 0x00, 0x0C, 0x0C, 0x00 },
+    [0x3B] = { 0x00, 0x0C, 0x0C, 0x00, 0x00, 0x0C, 0x0C, 0x06 },
+    [0x3C] = { 0x18, 0x0C, 0x06, 0x03, 0x06, 0x0C, 0x18, 0x00 },
+    [0x3D] = { 0x00, 0x00, 0x3F, 0x00, 0x00, 0x3F, 0x00, 0x00 },
+    [0x3E] = { 0x06, 0x0C, 0x18, 0x30, 0x18, 0x0C, 0x06, 0x00 },
+    [0x3F] = { 0x1E, 0x33, 0x30, 0x18, 0x0C, 0x00, 0x0C, 0x00 },
+    [0x40] = { 0x3E, 0x63, 0x7B, 0x7B, 0x7B, 0x03, 0x1E, 0x00 },
+    [0x41] = { 0x0C, 0x1E, 0x33, 0x33, 0x3F, 0x33, 0x33, 0x00 },
+    [0x42] = { 0x3F, 0x66, 0x66, 0x3E, 0x66, 0x66, 0x3F, 0x00 },
+    [0x43] = { 0x3C, 0x66, 0x03, 0x03, 0x03, 0x66, 0x3C, 0x00 },
+    [0x44] = { 0x1F, 0x36, 0x66, 0x66, 0x66, 0x36, 0x1F, 0x00 },
+    [0x45] = { 0x7F, 0x46, 0x16, 0x1E, 0x16, 0x46, 0x7F, 0x00 },
+    [0x46] = { 0x7F, 0x46, 0x16, 0x1E, 0x16, 0x06, 0x0F, 0x00 },
+    [0x47] = { 0x3C, 0x66, 0x03, 0x03, 0x73, 0x66, 0x7C, 0x00 },
+    [0x48] = { 0x33, 0x33, 0x33, 0x3F, 0x33, 0x33, 0x33, 0x00 },
+    [0x49] = { 0x1E, 0x0C, 0x0C, 0x0C, 0x0C, 0x0C, 0x1E, 0x00 },
+    [0x4A] = { 0x78, 0x30, 0x30, 0x30, 0x33, 0x33, 0x1E, 0x00 },
+    [0x4B] = { 0x67, 0x66, 0x36, 0x1E, 0x36, 0x66, 0x67, 0x00 },
+    [0x4C] = { 0x0F, 0x06, 0x06, 0x06, 0x46, 0x66, 0x7F, 0x00 },
+    [0x4D] = { 0x63, 0x77, 0x7F, 0x7F, 0x6B, 0x63, 0x63, 0x00 },
+    [0x4E] = { 0x63, 0x67, 0x6F, 0x7B, 0x73, 0x63, 0x63, 0x00 },
+    [0x4F] = { 0x1C, 0x36, 0x63, 0x63, 0x63, 0x36, 0x1C, 0x00 },
+    [0x50] = { 0x3F, 0x66, 0x66, 0x3E, 0x06, 0x06, 0x0F, 0x00 },
+    [0x51] = { 0x1E, 0x33, 0x33, 0x33, 0x3B, 0x1E, 0x38, 0x00 },
+    [0x52] = { 0x3F, 0x66, 0x66, 0x3E, 0x36, 0x66, 0x67, 0x00 },
+    [0x53] = { 0x1E, 0x33, 0x07, 0x0E, 0x38, 0x33, 0x1E, 0x00 },
+    [0x54] = { 0x3F, 0x2D, 0x0C, 0x0C, 0x0C, 0x0C, 0x1E, 0x00 },
+    [0x55] = { 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x3F, 0x00 },
+    [0x56] = { 0x33, 0x33, 0x33, 0x33, 0x33, 0x1E, 0x0C, 0x00 },
+    [0x57] = { 0x63, 0x63, 0x63, 0x6B, 0x7F, 0x77, 0x63, 0x00 },
+    [0x58] = { 0x63, 0x63, 0x36, 0x1C, 0x1C, 0x36, 0x63, 0x00 },
+    [0x59] = { 0x33, 0x33, 0x33, 0x1E, 0x0C, 0x0C, 0x1E, 0x00 },
+    [0x5A] = { 0x7F, 0x63, 0x31, 0x18, 0x4C, 0x66, 0x7F, 0x00 },
+    [0x5B] = { 0x1E, 0x06, 0x06, 0x06, 0x06, 0x06, 0x1E, 0x00 },
+    [0x5C] = { 0x03, 0x06, 0x0C, 0x18, 0x30, 0x60, 0x40, 0x00 },
+    [0x5D] = { 0x1E, 0x18, 0x18, 0x18, 0x18, 0x18, 0x1E, 0x00 },
+    [0x5E] = { 0x08, 0x1C, 0x36, 0x63, 0x00, 0x00, 0x00, 0x00 },
+    [0x5F] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF },
+    [0x60] = { 0x0C, 0x0C, 0x18, 0x00, 0x00, 0x00, 0x00, 0x00 },
+    [0x61] = { 0x00, 0x00, 0x1E, 0x30, 0x3E, 0x33, 0x6E, 0x00 },
+    [0x62] = { 0x07, 0x06, 0x06, 0x3E, 0x66, 0x66, 0x3B, 0x00 },
+    [0x63] = { 0x00, 0x00, 0x1E, 0x33, 0x03, 0x33, 0x1E, 0x00 },
+    [0x64] = { 0x38, 0x30, 0x30, 0x3E, 0x33, 0x33, 0x6E, 0x00 },
+    [0x65] = { 0x00, 0x00, 0x1E, 0x33, 0x3F, 0x03, 0x1E, 0x00 },
+    [0x66] = { 0x1C, 0x36, 0x06, 0x0F, 0x06, 0x06, 0x0F, 0x00 },
+    [0x67] = { 0x00, 0x00, 0x6E, 0x33, 0x33, 0x3E, 0x30, 0x1F },
+    [0x68] = { 0x07, 0x06, 0x36, 0x6E, 0x66, 0x66, 0x67, 0x00 },
+    [0x69] = { 0x0C, 0x00, 0x0E, 0x0C, 0x0C, 0x0C, 0x1E, 0x00 },
+    [0x6A] = { 0x30, 0x00, 0x30, 0x30, 0x30, 0x33, 0x33, 0x1E },
+    [0x6B] = { 0x07, 0x06, 0x66, 0x36, 0x1E, 0x36, 0x67, 0x00 },
+    [0x6C] = { 0x0E, 0x0C, 0x0C, 0x0C, 0x0C, 0x0C, 0x1E, 0x00 },
+    [0x6D] = { 0x00, 0x00, 0x33, 0x7F, 0x7F, 0x6B, 0x63, 0x00 },
+    [0x6E] = { 0x00, 0x00, 0x1F, 0x33, 0x33, 0x33, 0x33, 0x00 },
+    [0x6F] = { 0x00, 0x00, 0x1E, 0x33, 0x33, 0x33, 0x1E, 0x00 },
+    [0x70] = { 0x00, 0x00, 0x3B, 0x66, 0x66, 0x3E, 0x06, 0x0F },
+    [0x71] = { 0x00, 0x00, 0x6E, 0x33, 0x33, 0x3E, 0x30, 0x78 },
+    [0x72] = { 0x00, 0x00, 0x3B, 0x6E, 0x66, 0x06, 0x0F, 0x00 },
+    [0x73] = { 0x00, 0x00, 0x3E, 0x03, 0x1E, 0x30, 0x1F, 0x00 },
+    [0x74] = { 0x08, 0x0C, 0x3E, 0x0C, 0x0C, 0x2C, 0x18, 0x00 },
+    [0x75] = { 0x00, 0x00, 0x33, 0x33, 0x33, 0x33, 0x6E, 0x00 },
+    [0x76] = { 0x00, 0x00, 0x33, 0x33, 0x33, 0x1E, 0x0C, 0x00 },
+    [0x77] = { 0x00, 0x00, 0x63, 0x6B, 0x7F, 0x7F, 0x36, 0x00 },
+    [0x78] = { 0x00, 0x00, 0x63, 0x36, 0x1C, 0x36, 0x63, 0x00 },
+    [0x79] = { 0x00, 0x00, 0x33, 0x33, 0x33, 0x3E, 0x30, 0x1F },
+    [0x7A] = { 0x00, 0x00, 0x3F, 0x19, 0x0C, 0x26, 0x3F, 0x00 },
+    [0x7B] = { 0x38, 0x0C, 0x0C, 0x07, 0x0C, 0x0C, 0x38, 0x00 },
+    [0x7C] = { 0x18, 0x18, 0x18, 0x00, 0x18, 0x18, 0x18, 0x00 },
+    [0x7D] = { 0x07, 0x0C, 0x0C, 0x38, 0x0C, 0x0C, 0x07, 0x00 },
+    [0x7E] = { 0x6E, 0x3B, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 },
 };
 
 static void push_console(const char* line)
@@ -366,7 +401,8 @@ static void ovl_check_shader(GLuint shader, const char* name)
 {
     GLint ok;
     glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);
-    if (!ok) {
+    if (!ok)
+    {
         char log[512];
         glGetShaderInfoLog(shader, sizeof(log), NULL, log);
         fprintf(stderr, "overlay shader '%s' compile error:\n%s\n", name, log);
@@ -377,7 +413,8 @@ static void ovl_check_program(GLuint prog, const char* name)
 {
     GLint ok;
     glGetProgramiv(prog, GL_LINK_STATUS, &ok);
-    if (!ok) {
+    if (!ok)
+    {
         char log[512];
         glGetProgramInfoLog(prog, sizeof(log), NULL, log);
         fprintf(stderr, "overlay program '%s' link error:\n%s\n", name, log);
@@ -387,7 +424,7 @@ static void ovl_check_program(GLuint prog, const char* name)
 
 static void overlay_gl_init(void)
 {
-    GLuint vs, fs;
+    GLuint             vs, fs;
     static const char* vs_src =
         OVL_GLSL_HDR
         "in vec2 a_pos;\n"
@@ -460,11 +497,14 @@ static void overlay_gl_init(void)
 
     glGenTextures(1, &s_anim_tex);
     glBindTexture(GL_TEXTURE_2D, s_anim_tex);
+    glGenTextures(1, &s_fps_tex);
+    glBindTexture(GL_TEXTURE_2D, s_fps_tex);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, ANIM_TEX_W, ANIM_TEX_H, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, FPS_TEX_W, FPS_TEX_H, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
     glBindTexture(GL_TEXTURE_2D, 0);
 
     /* Colored-line program for the collision wireframe (a_pos = NDC, a_col = RGB). */
@@ -482,8 +522,12 @@ static void overlay_gl_init(void)
             "void main() { fragColor = vec4(v_col, 1.0); }\n";
         GLuint lvs = glCreateShader(GL_VERTEX_SHADER);
         GLuint lfs = glCreateShader(GL_FRAGMENT_SHADER);
-        glShaderSource(lvs, 1, &lvs_src, NULL); glCompileShader(lvs); ovl_check_shader(lvs, "line.vert");
-        glShaderSource(lfs, 1, &lfs_src, NULL); glCompileShader(lfs); ovl_check_shader(lfs, "line.frag");
+        glShaderSource(lvs, 1, &lvs_src, NULL);
+        glCompileShader(lvs);
+        ovl_check_shader(lvs, "line.vert");
+        glShaderSource(lfs, 1, &lfs_src, NULL);
+        glCompileShader(lfs);
+        ovl_check_shader(lfs, "line.frag");
         s_line_prog = glCreateProgram();
         glAttachShader(s_line_prog, lvs);
         glAttachShader(s_line_prog, lfs);
@@ -491,7 +535,8 @@ static void overlay_gl_init(void)
         glBindAttribLocation(s_line_prog, 1, "a_col");
         glLinkProgram(s_line_prog);
         ovl_check_program(s_line_prog, "line");
-        glDeleteShader(lvs); glDeleteShader(lfs);
+        glDeleteShader(lvs);
+        glDeleteShader(lfs);
 
         glGenVertexArrays(1, &s_line_vao);
         glGenBuffers(1, &s_line_vbo);
@@ -516,13 +561,18 @@ static void overlay_render_row(int rowIdx, const char* str)
 {
     int cx, x, y;
 
-    for (cx = 0; *str && cx < LINE_LEN; cx++, str++) {
+    for (cx = 0; *str && cx < LINE_LEN; cx++, str++)
+    {
         unsigned int ch = (unsigned char)*str;
-        if (ch >= 128) continue;
-        for (y = 0; y < GLYPH_H; y++) {
+        if (ch >= 128)
+            continue;
+        for (y = 0; y < GLYPH_H; y++)
+        {
             unsigned char row = s_font[ch][y];
-            for (x = 0; x < GLYPH_W; x++) {
-                if (row & (1u << x)) {
+            for (x = 0; x < GLYPH_W; x++)
+            {
+                if (row & (1u << x))
+                {
                     s_pixels[rowIdx * GLYPH_H + y][cx * GLYPH_W + x][0] = 255;
                     s_pixels[rowIdx * GLYPH_H + y][cx * GLYPH_W + x][1] = 255;
                     s_pixels[rowIdx * GLYPH_H + y][cx * GLYPH_W + x][2] = 255;
@@ -542,7 +592,8 @@ static void overlay_update_texture(void)
     for (line = 0; line < s_console_count; line++)
         overlay_render_row(line, s_console[s_console_count - 1 - line]);
 
-    if (g_PcConsoleInputActive) {
+    if (g_PcConsoleInputActive)
+    {
         char prompt[LINE_LEN];
         snprintf(prompt, LINE_LEN, "> %s_", s_input_buf);
         overlay_render_row(s_console_count, prompt); /* row under newest; fits the +1 row */
@@ -559,31 +610,37 @@ static void overlay_update_texture(void)
 static void coll_gather(void)
 {
     s_SubCharacter* player = &g_SysWork.playerWork.player;
-    q19_12 px = player->position.vx;
-    q19_12 py = player->position.vy;
-    q19_12 pz = player->position.vz;
-    const q19_12 D = 2 * 4096; /* 2.0 in Q19.12 */
+    q19_12          px     = player->position.vx;
+    q19_12          py     = player->position.vy;
+    q19_12          pz     = player->position.vz;
+    const q19_12    D      = 2 * 4096; /* 2.0 in Q19.12 */
     /* Floor-probe results are cached and refreshed every 4th frame — they change
      * slowly and each Collision_SurfaceGet is a full query, so this trims the per-frame
      * cost. The wireframe + collState panel still update every frame. */
     static s_CollisionSurface c0, cxp, cxn, czp, czn;
-    static int s_floorThrottle = 0;
-    int n = 0;
+    static int                s_floorThrottle = 0;
+    int                       n               = 0;
 
     /* Capture the local collision-cell geometry (green wireframe). Cheap on most
      * frames — it only re-walks the arrays when Harry's cell changes. */
     s_cvFloorY = py;
     CollVis_CaptureCell(px, pz);
 
-    if ((s_floorThrottle++ & 3) == 0) {
-        Collision_SurfaceGet(&c0,  px,     pz);
+    if ((s_floorThrottle++ & 3) == 0)
+    {
+        Collision_SurfaceGet(&c0, px, pz);
         Collision_SurfaceGet(&cxp, px + D, pz);
         Collision_SurfaceGet(&cxn, px - D, pz);
-        Collision_SurfaceGet(&czp, px,     pz + D);
-        Collision_SurfaceGet(&czn, px,     pz - D);
+        Collision_SurfaceGet(&czp, px, pz + D);
+        Collision_SurfaceGet(&czn, px, pz - D);
     }
 
-#define CL(...) do { if (n < COLL_LINES) snprintf(s_coll_lines[n++], COLL_COLS, __VA_ARGS__); } while (0)
+#define CL(...)                                                  \
+    do                                                           \
+    {                                                            \
+        if (n < COLL_LINES)                                      \
+            snprintf(s_coll_lines[n++], COLL_COLS, __VA_ARGS__); \
+    } while (0)
     /* All positional/height values are raw fixed-point (Q12, 4096 = 1.0u) — the
      * engine's real numbers, not float conversions. */
     CL("== COLLISION  (' toggle)  [Q12] ==");
@@ -593,7 +650,11 @@ static void coll_gather(void)
      * Y lagged the ground (the falling-through-smoothing link). "Nt ago" persists
      * through a delayed mark. Kept near the top so it's on-screen. */
     {
-        extern struct s_WallEdgeDbg { int active; s32 gH, bound, wallCount, harryY, tick; } g_WallEdgeDbg;
+        extern struct s_WallEdgeDbg
+        {
+            int active;
+            s32 gH, bound, wallCount, harryY, tick;
+        } g_WallEdgeDbg;
         extern s32 g_TickCount;
         if (g_WallEdgeDbg.active)
             CL("WALLEDGE gH=%d bnd=%d cnt=%d hY=%d %dt ago %s",
@@ -618,7 +679,8 @@ static void coll_gather(void)
      * overlay maps 1:1 onto the renamed fields. func_8006A4A8 kept its raw name
      * upstream (no semantic rename). Values are raw Q12. */
     CL("- collState func_8006A4A8 -");
-    if (g_CollStateDbg.valid) {
+    if (g_CollStateDbg.valid)
+    {
         CL("point.subcellIdx=%d", g_CollStateDbg.faceIdx);
         CL("pt.f20.radiusCollDiff=%d", g_CollStateDbg.dist);
         CL("charaState.radius=%d", g_CollStateDbg.radius);
@@ -628,7 +690,9 @@ static void coll_gather(void)
            g_CollStateDbg.respActive, g_CollStateDbg.angMin, g_CollStateDbg.angMax);
         CL("heightDisabled=%d groundType=%d",
            g_CollStateDbg.groundFlag, g_CollStateDbg.groundType);
-    } else {
+    }
+    else
+    {
         CL("(player pass not seen)");
     }
     /* Animation-driven collision cylinder OFFSET from Harry's visual center
@@ -654,19 +718,25 @@ static void coll_gather(void)
 static void coll_build_texture(void)
 {
     static unsigned char pixels[COLL_TEX_H][COLL_TEX_W][4];
-    int line, cx, x, y;
+    int                  line, cx, x, y;
 
     memset(pixels, 0, sizeof(pixels));
 
-    for (line = 0; line < s_coll_count; line++) {
+    for (line = 0; line < s_coll_count; line++)
+    {
         const char* str = s_coll_lines[line];
-        for (cx = 0; *str && cx < COLL_COLS; cx++, str++) {
+        for (cx = 0; *str && cx < COLL_COLS; cx++, str++)
+        {
             unsigned int ch = (unsigned char)*str;
-            if (ch >= 128) continue;
-            for (y = 0; y < GLYPH_H; y++) {
+            if (ch >= 128)
+                continue;
+            for (y = 0; y < GLYPH_H; y++)
+            {
                 unsigned char row = s_font[ch][y];
-                for (x = 0; x < GLYPH_W; x++) {
-                    if (row & (1u << x)) {
+                for (x = 0; x < GLYPH_W; x++)
+                {
+                    if (row & (1u << x))
+                    {
                         pixels[line * GLYPH_H + y][cx * GLYPH_W + x][0] = 130;
                         pixels[line * GLYPH_H + y][cx * GLYPH_W + x][1] = 255;
                         pixels[line * GLYPH_H + y][cx * GLYPH_W + x][2] = 130;
@@ -690,7 +760,12 @@ static void anim_gather(void)
     s_Model* m  = &g_SysWork.playerWork.extra.model;
     u8       st = m->anim.status;
     int      n  = 0;
-#define AL(...) do { if (n < ANIM_LINES) snprintf(s_anim_lines[n++], ANIM_COLS, __VA_ARGS__); } while (0)
+#define AL(...)                                                  \
+    do                                                           \
+    {                                                            \
+        if (n < ANIM_LINES)                                      \
+            snprintf(s_anim_lines[n++], ANIM_COLS, __VA_ARGS__); \
+    } while (0)
     AL("== ANIM (K) ,. / step ==");
     AL("KF %d / %d", g_DebugAnimKf, g_DebugAnimKfMax > 0 ? g_DebugAnimKfMax - 1 : 0);
     /* Which authored anim's keyframe range contains the inspected frame ( / jumps
@@ -698,14 +773,24 @@ static void anim_gather(void)
      * [start,end] range; -1 starts are blend entries (skipped). */
     {
         int i, animIdx = -1, s0 = 0, e0 = 0;
-        for (i = 0; i < 256; i++) {
+        for (i = 0; i < 256; i++)
+        {
             int sk = HARRY_BASE_ANIM_INFOS[i].startKeyframeIdx;
             int ek = HARRY_BASE_ANIM_INFOS[i].endKeyframeIdx;
-            if (sk < 0 || ek < sk) continue;
-            if (g_DebugAnimKf >= sk && g_DebugAnimKf <= ek) { animIdx = i; s0 = sk; e0 = ek; break; }
+            if (sk < 0 || ek < sk)
+                continue;
+            if (g_DebugAnimKf >= sk && g_DebugAnimKf <= ek)
+            {
+                animIdx = i;
+                s0      = sk;
+                e0      = ek;
+                break;
+            }
         }
-        if (animIdx >= 0) AL("in anim %d [%d-%d]", animIdx, s0, e0);
-        else              AL("in anim --  (/ next)");
+        if (animIdx >= 0)
+            AL("in anim %d [%d-%d]", animIdx, s0, e0);
+        else
+            AL("in anim --  (/ next)");
     }
     AL("anim %d  active %d",
        (int)ANIM_STATUS_IDX_GET(st), (int)(ANIM_STATUS_IS_ACTIVE(st) ? 1 : 0));
@@ -721,24 +806,70 @@ static void anim_gather(void)
 static void anim_build_texture(void)
 {
     static unsigned char pixels[ANIM_TEX_H][ANIM_TEX_W][4];
-    int line, cx, x, y;
+    int                  line, cx, x, y;
 
     memset(pixels, 0, sizeof(pixels));
 
-    for (line = 0; line < s_anim_count; line++) {
+    for (line = 0; line < s_anim_count; line++)
+    {
         const char* str = s_anim_lines[line];
-        for (cx = 0; *str && cx < ANIM_COLS; cx++, str++) {
+        for (cx = 0; *str && cx < ANIM_COLS; cx++, str++)
+        {
             unsigned int ch = (unsigned char)*str;
-            if (ch >= 128) continue;
-            for (y = 0; y < GLYPH_H; y++) {
+            if (ch >= 128)
+                continue;
+            for (y = 0; y < GLYPH_H; y++)
+            {
                 unsigned char row = s_font[ch][y];
-                for (x = 0; x < GLYPH_W; x++) {
-                    if (row & (1u << x)) {
+                for (x = 0; x < GLYPH_W; x++)
+                {
+                    if (row & (1u << x))
+                    {
                         pixels[line * GLYPH_H + y][cx * GLYPH_W + x][0] = 255;
                         pixels[line * GLYPH_H + y][cx * GLYPH_W + x][1] = 210;
                         pixels[line * GLYPH_H + y][cx * GLYPH_W + x][2] = 110;
                         pixels[line * GLYPH_H + y][cx * GLYPH_W + x][3] = 255;
                     }
+                }
+            }
+        }
+    }
+
+    glBindTexture(GL_TEXTURE_2D, s_fps_tex);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, FPS_TEX_W, FPS_TEX_H,
+                    GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+}
+
+/* Rasterise one string into the FPS texture, right-justified (so the readout
+ * hugs the top-right corner regardless of its width) and tinted yellow to
+ * distinguish it from the white console / green collision panel. */
+static void fps_build_texture(const char* str)
+{
+    static unsigned char pixels[FPS_TEX_H][FPS_TEX_W][4];
+    int                  len, col0, cx, x, y;
+
+    memset(pixels, 0, sizeof(pixels));
+    len = (int)strlen(str);
+    if (len > FPS_COLS)
+        len = FPS_COLS;
+    col0 = FPS_COLS - len; /* right-justify within the texture */
+
+    for (cx = 0; cx < len; cx++)
+    {
+        unsigned int ch = (unsigned char)str[cx];
+        if (ch >= 128)
+            continue;
+        for (y = 0; y < GLYPH_H; y++)
+        {
+            unsigned char row = s_font[ch][y];
+            for (x = 0; x < GLYPH_W; x++)
+            {
+                if (row & (1u << x))
+                {
+                    pixels[y][(col0 + cx) * GLYPH_W + x][0] = 255;
+                    pixels[y][(col0 + cx) * GLYPH_W + x][1] = 224;
+                    pixels[y][(col0 + cx) * GLYPH_W + x][2] = 0;
+                    pixels[y][(col0 + cx) * GLYPH_W + x][3] = 255;
                 }
             }
         }
@@ -753,12 +884,30 @@ static void anim_build_texture(void)
 static void draw_panel(GLuint tex, float x0, float y0, float x1, float y1)
 {
     float verts[6][4];
-    verts[0][0] = x0; verts[0][1] = y0; verts[0][2] = 0.0f; verts[0][3] = 0.0f;
-    verts[1][0] = x0; verts[1][1] = y1; verts[1][2] = 0.0f; verts[1][3] = 1.0f;
-    verts[2][0] = x1; verts[2][1] = y0; verts[2][2] = 1.0f; verts[2][3] = 0.0f;
-    verts[3][0] = x1; verts[3][1] = y0; verts[3][2] = 1.0f; verts[3][3] = 0.0f;
-    verts[4][0] = x0; verts[4][1] = y1; verts[4][2] = 0.0f; verts[4][3] = 1.0f;
-    verts[5][0] = x1; verts[5][1] = y1; verts[5][2] = 1.0f; verts[5][3] = 1.0f;
+    verts[0][0] = x0;
+    verts[0][1] = y0;
+    verts[0][2] = 0.0f;
+    verts[0][3] = 0.0f;
+    verts[1][0] = x0;
+    verts[1][1] = y1;
+    verts[1][2] = 0.0f;
+    verts[1][3] = 1.0f;
+    verts[2][0] = x1;
+    verts[2][1] = y0;
+    verts[2][2] = 1.0f;
+    verts[2][3] = 0.0f;
+    verts[3][0] = x1;
+    verts[3][1] = y0;
+    verts[3][2] = 1.0f;
+    verts[3][3] = 0.0f;
+    verts[4][0] = x0;
+    verts[4][1] = y1;
+    verts[4][2] = 0.0f;
+    verts[4][3] = 1.0f;
+    verts[5][0] = x1;
+    verts[5][1] = y1;
+    verts[5][2] = 1.0f;
+    verts[5][3] = 1.0f;
 
     glBindTexture(GL_TEXTURE_2D, tex);
     glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(verts), verts);
@@ -775,9 +924,9 @@ static void collvis_view(const VECTOR3* cam, s32 wx, s32 wy, s32 wz,
     float dx = (float)(wx - cam->vx) / 4096.0f;
     float dy = (float)(wy - cam->vy) / 4096.0f;
     float dz = (float)(wz - cam->vz) / 4096.0f;
-    *vx = (VbWvsMatrix.m[0][0] * dx + VbWvsMatrix.m[0][1] * dy + VbWvsMatrix.m[0][2] * dz) / 4096.0f;
-    *vy = (VbWvsMatrix.m[1][0] * dx + VbWvsMatrix.m[1][1] * dy + VbWvsMatrix.m[1][2] * dz) / 4096.0f;
-    *vz = (VbWvsMatrix.m[2][0] * dx + VbWvsMatrix.m[2][1] * dy + VbWvsMatrix.m[2][2] * dz) / 4096.0f;
+    *vx      = (VbWvsMatrix.m[0][0] * dx + VbWvsMatrix.m[0][1] * dy + VbWvsMatrix.m[0][2] * dz) / 4096.0f;
+    *vy      = (VbWvsMatrix.m[1][0] * dx + VbWvsMatrix.m[1][1] * dy + VbWvsMatrix.m[1][2] * dz) / 4096.0f;
+    *vz      = (VbWvsMatrix.m[2][0] * dx + VbWvsMatrix.m[2][1] * dy + VbWvsMatrix.m[2][2] * dz) / 4096.0f;
 }
 
 /* Project a world segment to two NDC points, clipping at the near plane so a
@@ -788,7 +937,7 @@ static int collvis_proj_seg(const VECTOR3* cam, float H, float halfW,
                             float* nax, float* nay, float* nbx, float* nby)
 {
     const float NEARZ = 1.0f;
-    float vax, vay, vaz, vbx, vby, vbz;
+    float       vax, vay, vaz, vbx, vby, vbz;
 
     collvis_view(cam, ax, ay, az, &vax, &vay, &vaz);
     collvis_view(cam, bx, by, bz, &vbx, &vby, &vbz);
@@ -796,16 +945,25 @@ static int collvis_proj_seg(const VECTOR3* cam, float H, float halfW,
     if (vaz < NEARZ && vbz < NEARZ)
         return 0;
 
-    if (vaz < NEARZ) {
+    if (vaz < NEARZ)
+    {
         float t = (NEARZ - vaz) / (vbz - vaz);
-        vax += (vbx - vax) * t; vay += (vby - vay) * t; vaz = NEARZ;
-    } else if (vbz < NEARZ) {
+        vax    += (vbx - vax) * t;
+        vay    += (vby - vay) * t;
+        vaz     = NEARZ;
+    }
+    else if (vbz < NEARZ)
+    {
         float t = (NEARZ - vbz) / (vaz - vbz);
-        vbx += (vax - vbx) * t; vby += (vay - vby) * t; vbz = NEARZ;
+        vbx    += (vax - vbx) * t;
+        vby    += (vay - vby) * t;
+        vbz     = NEARZ;
     }
 
-    *nax =  (vax * H / vaz) / halfW;  *nay = -(vay * H / vaz) / 120.0f;
-    *nbx =  (vbx * H / vbz) / halfW;  *nby = -(vby * H / vbz) / 120.0f;
+    *nax = (vax * H / vaz) / halfW;
+    *nay = -(vay * H / vaz) / 120.0f;
+    *nbx = (vbx * H / vbz) / halfW;
+    *nby = -(vby * H / vbz) / 120.0f;
     return 1;
 }
 
@@ -816,9 +974,9 @@ static int collvis_proj_seg(const VECTOR3* cam, float H, float halfW,
 static void collvis_render_lines(void)
 {
     static float verts[CV_VERT_CAP * 5];
-    VECTOR3 cam;
-    float   H, halfW;
-    int     i, nv = 0;
+    VECTOR3      cam;
+    float        H, halfW;
+    int          i, nv = 0;
 
     if (s_cvSegCount == 0 && s_cvCylCount == 0 && s_cvHitCount == 0 && s_cvHitCylCount == 0)
         return;
@@ -830,66 +988,93 @@ static void collvis_render_lines(void)
     {
         const float psxAspect = 320.0f / 240.0f;
         const float winAspect = g_PcConfig.windowHeight > 0
-            ? (float)g_PcConfig.windowWidth / (float)g_PcConfig.windowHeight : psxAspect;
-        halfW = 160.0f * (winAspect / psxAspect);
+                                    ? (float)g_PcConfig.windowWidth / (float)g_PcConfig.windowHeight
+                                    : psxAspect;
+        halfW                 = 160.0f * (winAspect / psxAspect);
     }
 
-#define CV_PUSH_LINE(r,g,b, X0,Y0,Z0, X1,Y1,Z1) do {                              \
-        float _pa, _pb, _pc, _pd;                                                 \
-        if (nv + 10 <= CV_VERT_CAP * 5 &&                                         \
-            collvis_proj_seg(&cam, H, halfW, (X0),(Y0),(Z0), (X1),(Y1),(Z1),      \
-                             &_pa, &_pb, &_pc, &_pd)) {                           \
-            verts[nv++]=_pa; verts[nv++]=_pb; verts[nv++]=(r); verts[nv++]=(g); verts[nv++]=(b); \
-            verts[nv++]=_pc; verts[nv++]=_pd; verts[nv++]=(r); verts[nv++]=(g); verts[nv++]=(b); \
-        } } while (0)
+#define CV_PUSH_LINE(r, g, b, X0, Y0, Z0, X1, Y1, Z1)                            \
+    do                                                                           \
+    {                                                                            \
+        float _pa, _pb, _pc, _pd;                                                \
+        if (nv + 10 <= CV_VERT_CAP * 5 &&                                        \
+            collvis_proj_seg(&cam, H, halfW, (X0), (Y0), (Z0), (X1), (Y1), (Z1), \
+                             &_pa, &_pb, &_pc, &_pd))                            \
+        {                                                                        \
+            verts[nv++] = _pa;                                                   \
+            verts[nv++] = _pb;                                                   \
+            verts[nv++] = (r);                                                   \
+            verts[nv++] = (g);                                                   \
+            verts[nv++] = (b);                                                   \
+            verts[nv++] = _pc;                                                   \
+            verts[nv++] = _pd;                                                   \
+            verts[nv++] = (r);                                                   \
+            verts[nv++] = (g);                                                   \
+            verts[nv++] = (b);                                                   \
+        }                                                                        \
+    } while (0)
 
     /* Cached cell surface geometry (green, flat). */
-    for (i = 0; i < s_cvSegCount; i++) {
+    for (i = 0; i < s_cvSegCount; i++)
+    {
         CV_PUSH_LINE(0.2f, 1.0f, 0.3f, s_cvSegs[i].ax, s_cvSegs[i].ay, s_cvSegs[i].az,
-                                       s_cvSegs[i].bx, s_cvSegs[i].by, s_cvSegs[i].bz);
+                     s_cvSegs[i].bx, s_cvSegs[i].by, s_cvSegs[i].bz);
     }
 
     /* Per-frame contacted faces (red, on top). */
-    for (i = 0; i < s_cvHitCount; i++) {
+    for (i = 0; i < s_cvHitCount; i++)
+    {
         CV_PUSH_LINE(1.0f, 0.15f, 0.15f, s_cvHits[i].ax, s_cvHits[i].ay, s_cvHits[i].az,
-                                         s_cvHits[i].bx, s_cvHits[i].by, s_cvHits[i].bz);
+                     s_cvHits[i].bx, s_cvHits[i].by, s_cvHits[i].bz);
     }
 
     /* Cylinder colliders (trees/poles) as cyan boxes, half-extent = radius,
      * standing on the floor (the collider's own Y isn't the ground). */
-    for (i = 0; i < s_cvCylCount; i++) {
+    for (i = 0; i < s_cvCylCount; i++)
+    {
         s32 cx = s_cvCyls[i].cx, cz = s_cvCyls[i].cz, r = s_cvCyls[i].r;
         s32 fy = s_cvFloorY;            /* box base = floor */
         s32 ty = s_cvFloorY - CV_CYL_H; /* box top  = floor + height (up = -Y) */
         s32 cxn[4], czn[4], k;
-        cxn[0] = cx - r; czn[0] = cz - r;
-        cxn[1] = cx + r; czn[1] = cz - r;
-        cxn[2] = cx + r; czn[2] = cz + r;
-        cxn[3] = cx - r; czn[3] = cz + r;
-        for (k = 0; k < 4; k++) {
+        cxn[0] = cx - r;
+        czn[0] = cz - r;
+        cxn[1] = cx + r;
+        czn[1] = cz - r;
+        cxn[2] = cx + r;
+        czn[2] = cz + r;
+        cxn[3] = cx - r;
+        czn[3] = cz + r;
+        for (k = 0; k < 4; k++)
+        {
             int k1 = (k + 1) & 3;
-            CV_PUSH_LINE(0.2f,0.8f,1.0f, cxn[k],fy,czn[k], cxn[k1],fy,czn[k1]);  /* base */
-            CV_PUSH_LINE(0.2f,0.8f,1.0f, cxn[k],ty,czn[k], cxn[k1],ty,czn[k1]);  /* top  */
-            CV_PUSH_LINE(0.2f,0.8f,1.0f, cxn[k],fy,czn[k], cxn[k],ty,czn[k]);    /* vert */
+            CV_PUSH_LINE(0.2f, 0.8f, 1.0f, cxn[k], fy, czn[k], cxn[k1], fy, czn[k1]); /* base */
+            CV_PUSH_LINE(0.2f, 0.8f, 1.0f, cxn[k], ty, czn[k], cxn[k1], ty, czn[k1]); /* top  */
+            CV_PUSH_LINE(0.2f, 0.8f, 1.0f, cxn[k], fy, czn[k], cxn[k], ty, czn[k]);   /* vert */
         }
     }
 
     /* The actual blocker this frame (red box) — obstacle or NPC cylinder that
      * stopped Harry, captured at the collision point regardless of which cell. */
-    for (i = 0; i < s_cvHitCylCount; i++) {
+    for (i = 0; i < s_cvHitCylCount; i++)
+    {
         s32 cx = s_cvHitCyls[i].cx, cz = s_cvHitCyls[i].cz, r = s_cvHitCyls[i].r;
         s32 fy = s_cvFloorY;
         s32 ty = s_cvFloorY - CV_CYL_H;
         s32 cxn[4], czn[4], k;
-        cxn[0] = cx - r; czn[0] = cz - r;
-        cxn[1] = cx + r; czn[1] = cz - r;
-        cxn[2] = cx + r; czn[2] = cz + r;
-        cxn[3] = cx - r; czn[3] = cz + r;
-        for (k = 0; k < 4; k++) {
+        cxn[0] = cx - r;
+        czn[0] = cz - r;
+        cxn[1] = cx + r;
+        czn[1] = cz - r;
+        cxn[2] = cx + r;
+        czn[2] = cz + r;
+        cxn[3] = cx - r;
+        czn[3] = cz + r;
+        for (k = 0; k < 4; k++)
+        {
             int k1 = (k + 1) & 3;
-            CV_PUSH_LINE(1.0f,0.1f,0.1f, cxn[k],fy,czn[k], cxn[k1],fy,czn[k1]);
-            CV_PUSH_LINE(1.0f,0.1f,0.1f, cxn[k],ty,czn[k], cxn[k1],ty,czn[k1]);
-            CV_PUSH_LINE(1.0f,0.1f,0.1f, cxn[k],fy,czn[k], cxn[k],ty,czn[k]);
+            CV_PUSH_LINE(1.0f, 0.1f, 0.1f, cxn[k], fy, czn[k], cxn[k1], fy, czn[k1]);
+            CV_PUSH_LINE(1.0f, 0.1f, 0.1f, cxn[k], ty, czn[k], cxn[k1], ty, czn[k1]);
+            CV_PUSH_LINE(1.0f, 0.1f, 0.1f, cxn[k], fy, czn[k], cxn[k], ty, czn[k]);
         }
     }
 
@@ -914,18 +1099,37 @@ void DbgOverlay_PushLine(const char* line)
 
 void DbgOverlay_Update(void)
 {
-    static int s_mark_a = 0;
-    static int s_mark_b = 0;
-    static int s_prev_tilde = 0;
-    VECTOR3 hpos, cpos;
+    static int      s_mark_a     = 0;
+    static int      s_mark_b     = 0;
+    static int      s_prev_tilde = 0;
+    VECTOR3         hpos, cpos;
     s_SubCharacter* player;
-    int cur_a, cur_b, cur_tilde;
-    char line[LINE_LEN];
+    int             cur_a, cur_b, cur_tilde;
+    char            line[LINE_LEN];
 
     extern int g_PcAllowDebugControls;
 
     const unsigned char* ks = SDL_GetKeyboardState(NULL);
-    if (!ks) return;
+    if (!ks)
+        return;
+
+    /* Onscreen FPS monitor: EMA over per-frame SDL_GetTicks deltas. Computed
+     * here so it advances every frame independent of the console view state. */
+    {
+        Uint64 now  = SDL_GetPerformanceCounter();
+        Uint64 freq = SDL_GetPerformanceFrequency();
+        if (s_fps_lastTick && freq > 0)
+        {
+            float dt = (float)((double)(now - s_fps_lastTick) / (double)freq * 1000.0);
+            if (dt > 0.0f && dt < 1000.0f)
+            {
+                float inst = 1000.0f / dt;
+                s_framems  = (s_framems < 0.1f) ? dt : (s_framems * 0.9f + dt * 0.1f);
+                s_fps      = (s_fps < 0.1f) ? inst : (s_fps * 0.9f + inst * 0.1f);
+            }
+        }
+        s_fps_lastTick = now;
+    }
 
     /* `~` console control (debug builds only) — tap/hold flipped per request:
      *   - HOLD (≥350 ms)            -> toggle the top-left "ingame" console view
@@ -938,40 +1142,49 @@ void DbgOverlay_Update(void)
      * that can't reach tilde can rebind it. Resolved once: empty falls back to tilde
      * (old configs keep working); "NONE" yields UNKNOWN = keyboard-unbindable. */
     {
-        static SDL_Scancode s_consoleSc = SDL_SCANCODE_GRAVE;
+        static SDL_Scancode s_consoleSc         = SDL_SCANCODE_GRAVE;
         static int          s_consoleScResolved = 0;
-        if (!s_consoleScResolved) {
-            s_consoleSc = (g_PcConfig.keyConsole[0] == '\0')
-                            ? SDL_SCANCODE_GRAVE
-                            : SDL_GetScancodeFromName(g_PcConfig.keyConsole);
+        if (!s_consoleScResolved)
+        {
+            s_consoleSc         = (g_PcConfig.keyConsole[0] == '\0')
+                                      ? SDL_SCANCODE_GRAVE
+                                      : SDL_GetScancodeFromName(g_PcConfig.keyConsole);
             s_consoleScResolved = 1;
         }
         cur_tilde = ks[s_consoleSc];
     }
-    if (g_PcAllowDebugControls) {
-        if (cur_tilde && !s_prev_tilde) { /* press edge */
+    if (g_PcAllowDebugControls)
+    {
+        if (cur_tilde && !s_prev_tilde)
+        { /* press edge */
             s_tilde_down_ms   = SDL_GetTicks();
             s_tilde_hold_done = 0;
         }
         /* HOLD: toggle the ingame view once the threshold elapses. */
         if (cur_tilde && !s_tilde_hold_done &&
-            (SDL_GetTicks() - s_tilde_down_ms) >= CONSOLE_HOLD_MS) {
+            (SDL_GetTicks() - s_tilde_down_ms) >= CONSOLE_HOLD_MS)
+        {
             s_tilde_hold_done       = 1;
-            g_PcConfig.showConsole ^= 2;          /* show <-> hide */
+            g_PcConfig.showConsole ^= 2; /* show <-> hide */
             s_console_dirty         = 1;
-            if (!(g_PcConfig.showConsole & 2) && g_PcConsoleInputActive) {
-                g_PcConsoleInputActive  = 0;      /* hiding -> drop input mode */
+            if (!(g_PcConfig.showConsole & 2) && g_PcConsoleInputActive)
+            {
+                g_PcConsoleInputActive  = 0; /* hiding -> drop input mode */
                 g_PcConsoleSwallowInput = 1;
             }
         }
         /* TAP: on release, if no hold consumed this press, toggle text input. */
-        if (!cur_tilde && s_prev_tilde && !s_tilde_hold_done) {
-            if (g_PcConsoleInputActive) {
-                g_PcConsoleInputActive  = 0;      /* exit input */
+        if (!cur_tilde && s_prev_tilde && !s_tilde_hold_done)
+        {
+            if (g_PcConsoleInputActive)
+            {
+                g_PcConsoleInputActive  = 0; /* exit input */
                 g_PcConsoleSwallowInput = 1;
                 s_console_dirty         = 1;
-            } else if ((g_PcConfig.showConsole & 2) && s_console_slide >= 1.0f) {
-                g_PcConsoleInputActive = 1;       /* enter input (only when fully shown) */
+            }
+            else if ((g_PcConfig.showConsole & 2) && s_console_slide >= 1.0f)
+            {
+                g_PcConsoleInputActive = 1; /* enter input (only when fully shown) */
                 s_input_len            = 0;
                 s_input_buf[0]         = '\0';
                 s_console_dirty        = 1;
@@ -983,12 +1196,17 @@ void DbgOverlay_Update(void)
     /* Console apply window: while it runs the game is unfrozen (so the last
      * command's effect shows) and pad input is suppressed; when it elapses, drop
      * back into input mode if the console is still open. */
-    if (s_console_apply_until) {
-        if (SDL_GetTicks() < s_console_apply_until) {
+    if (s_console_apply_until)
+    {
+        if (SDL_GetTicks() < s_console_apply_until)
+        {
             g_PcConsoleSwallowInput = 1;
-        } else {
+        }
+        else
+        {
             s_console_apply_until = 0;
-            if (g_PcConfig.showConsole & 2) {
+            if (g_PcConfig.showConsole & 2)
+            {
                 g_PcConsoleInputActive = 1;
                 s_console_dirty        = 1;
             }
@@ -999,10 +1217,13 @@ void DbgOverlay_Update(void)
      * submits. Edge-detected against s_prev_keys. The submitted command is
      * echoed half-life style; `quit` exits the game, anything else prints
      * "Command not found!". Submitting or tapping `~` unpauses. */
-    if (g_PcConsoleInputActive) {
+    if (g_PcConsoleInputActive)
+    {
         int sc;
-        for (sc = SDL_SCANCODE_A; sc <= SDL_SCANCODE_0; sc++) { /* A..Z, 1..9, 0 are contiguous */
-            if (ks[sc] && !s_prev_keys[sc]) {
+        for (sc = SDL_SCANCODE_A; sc <= SDL_SCANCODE_0; sc++)
+        { /* A..Z, 1..9, 0 are contiguous */
+            if (ks[sc] && !s_prev_keys[sc])
+            {
                 char c;
                 if (sc <= SDL_SCANCODE_Z)
                     c = (char)('A' + (sc - SDL_SCANCODE_A));
@@ -1010,7 +1231,8 @@ void DbgOverlay_Update(void)
                     c = '0';
                 else
                     c = (char)('1' + (sc - SDL_SCANCODE_1));
-                if (s_input_len < INPUT_BUF_CAP - 1) {
+                if (s_input_len < INPUT_BUF_CAP - 1)
+                {
                     s_input_buf[s_input_len++] = c;
                     s_input_buf[s_input_len]   = '\0';
                     s_console_dirty            = 1;
@@ -1020,7 +1242,8 @@ void DbgOverlay_Update(void)
         /* Space separates command from argument; `-` types `_` (map and FMV
          * names use underscores, and the console has no shift handling). */
         if (ks[SDL_SCANCODE_SPACE] && !s_prev_keys[SDL_SCANCODE_SPACE] &&
-            s_input_len > 0 && s_input_len < INPUT_BUF_CAP - 1) {
+            s_input_len > 0 && s_input_len < INPUT_BUF_CAP - 1)
+        {
             s_input_buf[s_input_len++] = ' ';
             s_input_buf[s_input_len]   = '\0';
             s_console_dirty            = 1;
@@ -1030,59 +1253,80 @@ void DbgOverlay_Update(void)
          * no full shift handling, just these three keys. */
         {
             int shift = ks[SDL_SCANCODE_LSHIFT] || ks[SDL_SCANCODE_RSHIFT];
-            const struct { int sc; char lo, hi; } syms[] = {
-                { SDL_SCANCODE_MINUS,  '-', '_' },
+            const struct
+            {
+                int  sc;
+                char lo, hi;
+            } syms[] = {
+                { SDL_SCANCODE_MINUS, '-', '_' },
                 { SDL_SCANCODE_EQUALS, '=', '+' },
                 { SDL_SCANCODE_PERIOD, '.', '.' },
             };
             int i;
-            for (i = 0; i < 3; i++) {
+            for (i = 0; i < 3; i++)
+            {
                 if (ks[syms[i].sc] && !s_prev_keys[syms[i].sc] &&
-                    s_input_len < INPUT_BUF_CAP - 1) {
+                    s_input_len < INPUT_BUF_CAP - 1)
+                {
                     s_input_buf[s_input_len++] = shift ? syms[i].hi : syms[i].lo;
                     s_input_buf[s_input_len]   = '\0';
                     s_console_dirty            = 1;
                 }
             }
         }
-        if (ks[SDL_SCANCODE_BACKSPACE] && !s_prev_keys[SDL_SCANCODE_BACKSPACE] && s_input_len > 0) {
+        if (ks[SDL_SCANCODE_BACKSPACE] && !s_prev_keys[SDL_SCANCODE_BACKSPACE] && s_input_len > 0)
+        {
             s_input_buf[--s_input_len] = '\0';
             s_console_dirty            = 1;
         }
         /* Up / Down: recall recently entered commands (most-recent first). */
-        if (ks[SDL_SCANCODE_UP] && !s_prev_keys[SDL_SCANCODE_UP] && s_hist_count > 0) {
-            if (s_hist_nav < 0) {  /* park the live edit before browsing into history */
+        if (ks[SDL_SCANCODE_UP] && !s_prev_keys[SDL_SCANCODE_UP] && s_hist_count > 0)
+        {
+            if (s_hist_nav < 0)
+            { /* park the live edit before browsing into history */
                 strncpy(s_hist_edit, s_input_buf, INPUT_BUF_CAP - 1);
                 s_hist_edit[INPUT_BUF_CAP - 1] = '\0';
             }
-            if (s_hist_nav < s_hist_count - 1) { Console_LoadHist(++s_hist_nav); s_console_dirty = 1; }
+            if (s_hist_nav < s_hist_count - 1)
+            {
+                Console_LoadHist(++s_hist_nav);
+                s_console_dirty = 1;
+            }
         }
-        if (ks[SDL_SCANCODE_DOWN] && !s_prev_keys[SDL_SCANCODE_DOWN] && s_hist_nav >= 0) {
-            if (s_hist_nav > 0) {
+        if (ks[SDL_SCANCODE_DOWN] && !s_prev_keys[SDL_SCANCODE_DOWN] && s_hist_nav >= 0)
+        {
+            if (s_hist_nav > 0)
+            {
                 Console_LoadHist(--s_hist_nav);
-            } else {  /* stepped past the newest -> restore the parked live edit */
-                s_hist_nav  = -1;
+            }
+            else
+            { /* stepped past the newest -> restore the parked live edit */
+                s_hist_nav = -1;
                 strncpy(s_input_buf, s_hist_edit, INPUT_BUF_CAP - 1);
                 s_input_buf[INPUT_BUF_CAP - 1] = '\0';
-                s_input_len = (int)strlen(s_input_buf);
+                s_input_len                    = (int)strlen(s_input_buf);
             }
             s_console_dirty = 1;
         }
-        if (ks[SDL_SCANCODE_RETURN] && !s_prev_keys[SDL_SCANCODE_RETURN]) {
-            if (s_input_len > 0) {
+        if (ks[SDL_SCANCODE_RETURN] && !s_prev_keys[SDL_SCANCODE_RETURN])
+        {
+            if (s_input_len > 0)
+            {
                 extern void Pc_ConsoleExec(const char* line);
-                char echo[LINE_LEN];
+                char        echo[LINE_LEN];
                 snprintf(echo, LINE_LEN, "> %s", s_input_buf);
                 push_console(echo);
                 Pc_ConsoleExec(s_input_buf);
                 /* Save to history (skip an immediate duplicate of the most recent). */
                 {
                     int prev = (s_hist_write - 1 + CONSOLE_HIST_MAX) % CONSOLE_HIST_MAX;
-                    if (s_hist_count == 0 || strcmp(s_hist[prev], s_input_buf) != 0) {
+                    if (s_hist_count == 0 || strcmp(s_hist[prev], s_input_buf) != 0)
+                    {
                         strncpy(s_hist[s_hist_write], s_input_buf, INPUT_BUF_CAP - 1);
                         s_hist[s_hist_write][INPUT_BUF_CAP - 1] = '\0';
-                        s_hist_write = (s_hist_write + 1) % CONSOLE_HIST_MAX;
-                        if (s_hist_count < CONSOLE_HIST_MAX) s_hist_count++;
+                        s_hist_write                            = (s_hist_write + 1) % CONSOLE_HIST_MAX;
+                        if (s_hist_count < CONSOLE_HIST_MAX)
+                            s_hist_count++;
                     }
                 }
                 s_hist_nav = -1;
@@ -1090,12 +1334,14 @@ void DbgOverlay_Update(void)
                  * command's effect renders/animates, then drop back into input mode
                  * (apply-window check at the top of the function). Lets the user run
                  * several commands without reopening. */
-                s_input_len    = 0;
-                s_input_buf[0] = '\0';
-                g_PcConsoleInputActive  = 0;          /* unfreeze for the window */
-                g_PcConsoleSwallowInput = 1;          /* don't leak this Enter   */
+                s_input_len             = 0;
+                s_input_buf[0]          = '\0';
+                g_PcConsoleInputActive  = 0; /* unfreeze for the window */
+                g_PcConsoleSwallowInput = 1; /* don't leak this Enter   */
                 s_console_apply_until   = SDL_GetTicks() + CONSOLE_APPLY_MS;
-            } else {
+            }
+            else
+            {
                 /* Empty Enter closes the console (hide + unfreeze). */
                 g_PcConsoleInputActive  = 0;
                 g_PcConsoleSwallowInput = 1;
@@ -1120,12 +1366,17 @@ void DbgOverlay_Update(void)
      * frame regardless of state so the console can animate back out. */
     {
         float target = (g_PcConfig.showConsole & 2) ? 1.0f : 0.0f;
-        if (s_console_slide < target) {
+        if (s_console_slide < target)
+        {
             s_console_slide += CONSOLE_SLIDE_STEP;
-            if (s_console_slide > target) s_console_slide = target;
-        } else if (s_console_slide > target) {
+            if (s_console_slide > target)
+                s_console_slide = target;
+        }
+        else if (s_console_slide > target)
+        {
             s_console_slide -= CONSOLE_SLIDE_STEP;
-            if (s_console_slide < target) s_console_slide = target;
+            if (s_console_slide < target)
+                s_console_slide = target;
         }
     }
 
@@ -1134,8 +1385,9 @@ void DbgOverlay_Update(void)
      * scrolling console's visibility. */
     {
         int cur_apos = ks[SDL_SCANCODE_APOSTROPHE];
-        if (cur_apos && !s_prev_apos && g_PcAllowDebugControls) {
-            s_coll_on = !s_coll_on;
+        if (cur_apos && !s_prev_apos && g_PcAllowDebugControls)
+        {
+            s_coll_on        = !s_coll_on;
             g_CollVisEnabled = s_coll_on;
             SH_DBG_ECHO("[DEBUG] ' Collision visualizer: %s", s_coll_on ? "ON" : "OFF");
         }
@@ -1155,8 +1407,9 @@ void DbgOverlay_Update(void)
      * g_PcAllowDebugControls — F1 always works. */
     {
         static int s_prev_f1 = 0;
-        int cur_f1 = ks[SDL_SCANCODE_F1];
-        if (cur_f1 && !s_prev_f1) {
+        int        cur_f1    = ks[SDL_SCANCODE_F1];
+        if (cur_f1 && !s_prev_f1)
+        {
             extern int g_PsxUsePgxp;
             g_PsxUsePgxp = !g_PsxUsePgxp;
             SH_DBG_ECHO("[DEBUG] F1 PGXP: %s", g_PsxUsePgxp ? "ON" : "OFF");
@@ -1170,11 +1423,15 @@ void DbgOverlay_Update(void)
      * menu / during boot). Suppressed only while typing in the console. */
     {
         static int s_prev_esc = 0;
-        int cur_esc = ks[SDL_SCANCODE_ESCAPE];
-        if (cur_esc && !s_prev_esc && !g_PcConsoleInputActive) {
-            if (g_GameWork.gameState == GameState_MainMenu) {
+        int        cur_esc    = ks[SDL_SCANCODE_ESCAPE];
+        if (cur_esc && !s_prev_esc && !g_PcConsoleInputActive)
+        {
+            if (g_GameWork.gameState == GameState_MainMenu)
+            {
                 exit(0);
-            } else {
+            }
+            else
+            {
                 g_SysWork.sysFlags |= SysFlag_DoWarmReset;
                 SH_DBG_ECHO("[DEBUG] Esc: warm reboot to title");
             }
@@ -1182,12 +1439,14 @@ void DbgOverlay_Update(void)
         s_prev_esc = cur_esc;
     }
 
-    if (g_PcConfig.showConsole < 2) return;
+    if (g_PcConfig.showConsole < 2)
+        return;
 
     cur_a = ks[SDL_SCANCODE_LEFTBRACKET];
     cur_b = ks[SDL_SCANCODE_RIGHTBRACKET];
 
-    if (cur_a && !s_prev_a) {
+    if (cur_a && !s_prev_a)
+    {
         player = &g_SysWork.playerWork.player;
         hpos   = player->position;
         vcGetNowCamPos(&cpos);
@@ -1200,7 +1459,8 @@ void DbgOverlay_Update(void)
         s_console_dirty = 1;
     }
 
-    if (cur_b && !s_prev_b) {
+    if (cur_b && !s_prev_b)
+    {
         player = &g_SysWork.playerWork.player;
         hpos   = player->position;
         vcGetNowCamPos(&cpos);
@@ -1219,12 +1479,12 @@ void DbgOverlay_Update(void)
 
 void DbgOverlay_Render(void)
 {
-    GLint   vp[4];
-    GLint   prev_prog, prev_tex, prev_vao, prev_vbo, prev_fb;
-    GLint   prev_active_tex, prev_blend_src, prev_blend_dst;
-    GLint   prev_blend_eq_rgb, prev_blend_eq_a;
+    GLint     vp[4];
+    GLint     prev_prog, prev_tex, prev_vao, prev_vbo, prev_fb;
+    GLint     prev_active_tex, prev_blend_src, prev_blend_dst;
+    GLint     prev_blend_eq_rgb, prev_blend_eq_a;
     GLboolean prev_depth, prev_blend;
-    int     drawConsole, drawColl, drawAnim;
+    int       drawConsole, drawColl, drawAnim;
 
     /* Console is hidden once fully slid off-screen (toggled by `~`); the ring
      * buffer keeps filling while hidden. The collision panel draws whenever it's
@@ -1233,21 +1493,23 @@ void DbgOverlay_Render(void)
     drawConsole = (s_console_slide > 0.0f && (s_console_count > 0 || g_PcConsoleInputActive));
     drawColl    = (s_coll_on && s_coll_count > 0);
     drawAnim    = (g_DebugAnimKfView && s_anim_count > 0);
-    if (!drawConsole && !drawColl && !s_coll_on && !drawAnim) return;
+    if (!drawConsole && !drawColl && !s_coll_on && !drawAnim && !g_PcConfig.showFps)
+        return;
 
     glGetIntegerv(GL_VIEWPORT, vp);
-    if (vp[2] == 0 || vp[3] == 0) return;
+    if (vp[2] == 0 || vp[3] == 0)
+        return;
 
     /* Save ALL state before making any changes. */
-    glGetIntegerv(GL_CURRENT_PROGRAM,      &prev_prog);
-    glGetIntegerv(GL_ACTIVE_TEXTURE,       &prev_active_tex);
-    glGetIntegerv(GL_TEXTURE_BINDING_2D,   &prev_tex);
+    glGetIntegerv(GL_CURRENT_PROGRAM, &prev_prog);
+    glGetIntegerv(GL_ACTIVE_TEXTURE, &prev_active_tex);
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &prev_tex);
     glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &prev_vao);
     glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &prev_vbo);
-    glGetIntegerv(GL_FRAMEBUFFER_BINDING,  &prev_fb);
-    glGetIntegerv(GL_BLEND_SRC_RGB,        &prev_blend_src);
-    glGetIntegerv(GL_BLEND_DST_RGB,        &prev_blend_dst);
-    glGetIntegerv(GL_BLEND_EQUATION_RGB,   &prev_blend_eq_rgb);
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prev_fb);
+    glGetIntegerv(GL_BLEND_SRC_RGB, &prev_blend_src);
+    glGetIntegerv(GL_BLEND_DST_RGB, &prev_blend_dst);
+    glGetIntegerv(GL_BLEND_EQUATION_RGB, &prev_blend_eq_rgb);
     glGetIntegerv(GL_BLEND_EQUATION_ALPHA, &prev_blend_eq_a);
     prev_depth = glIsEnabled(GL_DEPTH_TEST);
     prev_blend = glIsEnabled(GL_BLEND);
@@ -1271,48 +1533,74 @@ void DbgOverlay_Render(void)
     glBindVertexArray(s_vao);
     glBindBuffer(GL_ARRAY_BUFFER, s_vbo);
 
-    if (drawConsole) {
+    if (drawConsole)
+    {
         /* Top-left, sliding down from above the top edge. */
-        float x0 = -1.0f;
-        float y0 =  1.0f;
-        float x1 = x0 + 2.0f * (float)(TEX_W * SCALE) / (float)vp[2];
-        float y1 = y0 - 2.0f * (float)(TEX_H * SCALE) / (float)vp[3];
+        float x0       = -1.0f;
+        float y0       = 1.0f;
+        float x1       = x0 + 2.0f * (float)(TEX_W * SCALE) / (float)vp[2];
+        float y1       = y0 - 2.0f * (float)(TEX_H * SCALE) / (float)vp[3];
         float slideOfs = (1.0f - s_console_slide) * (y0 - y1);
-        y0 += slideOfs;
-        y1 += slideOfs;
+        y0            += slideOfs;
+        y1            += slideOfs;
 
         glBindTexture(GL_TEXTURE_2D, s_tex);
-        if (s_console_dirty) {
+        if (s_console_dirty)
+        {
             overlay_update_texture();
             s_console_dirty = 0;
         }
         draw_panel(s_tex, x0, y0, x1, y1);
     }
 
-    if (drawColl) {
+    if (g_PcConfig.showFps)
+    {
+        char  line[FPS_COLS + 1];
+        float w, h, x0, y0, x1, y1;
+#ifdef __SWITCH__
+        unsigned gload = g_gpuLoad10;
+        snprintf(line, sizeof(line), "FPS:%3.0f %4.1fms GPU:%3u%%",
+                 (double)s_fps, (double)s_framems, gload / 10);
+#else
+        snprintf(line, sizeof(line), "FPS:%3.0f %4.1fms",
+                 (double)s_fps, (double)s_framems);
+#endif
+        fps_build_texture(line);
+        w  = 2.0f * (float)(FPS_TEX_W * SCALE) / (float)vp[2];
+        h  = 2.0f * (float)(FPS_TEX_H * SCALE) / (float)vp[3];
+        x1 = 1.0f;
+        x0 = x1 - w;
+        y0 = 1.0f;
+        y1 = y0 - h;
+        draw_panel(s_fps_tex, x0, y0, x1, y1);
+    }
+
+    if (drawColl)
+    {
         /* Bottom-right corner (clear of the top-left console and bottom-center
          * subtitles). Rebuilt every frame since the data is live. */
         float cw = 2.0f * (float)(COLL_TEX_W * SCALE) / (float)vp[2];
         float ch = 2.0f * (float)(COLL_TEX_H * SCALE) / (float)vp[3];
-        float x1 =  1.0f;
-        float x0 =  x1 - cw;
+        float x1 = 1.0f;
+        float x0 = x1 - cw;
         float y1 = -1.0f;
-        float y0 =  y1 + ch;
+        float y0 = y1 + ch;
 
         coll_build_texture();
         draw_panel(s_coll_tex, x0, y0, x1, y1);
     }
 
-    if (drawAnim) {
+    if (drawAnim)
+    {
         /* Bottom-right; stacked directly above the collision panel when that's
          * also on, otherwise in the bottom-right corner itself. */
         float aw    = 2.0f * (float)(ANIM_TEX_W * SCALE) / (float)vp[2];
         float ah    = 2.0f * (float)(ANIM_TEX_H * SCALE) / (float)vp[3];
         float collH = drawColl ? (2.0f * (float)(COLL_TEX_H * SCALE) / (float)vp[3]) : 0.0f;
-        float x1 =  1.0f;
-        float x0 =  x1 - aw;
-        float y1 = -1.0f + collH;
-        float y0 =  y1 + ah;
+        float x1    = 1.0f;
+        float x0    = x1 - aw;
+        float y1    = -1.0f + collH;
+        float y0    = y1 + ah;
 
         anim_build_texture();
         draw_panel(s_anim_tex, x0, y0, x1, y1);
@@ -1320,9 +1608,10 @@ void DbgOverlay_Render(void)
 
     /* Collision wireframe lines (separate program). Consume + clear the
      * per-frame segment buffer captured during this frame's collision pass. */
-    if (s_coll_on) {
+    if (s_coll_on)
+    {
         collvis_render_lines();
-        s_cvHitCount = 0;    /* per-frame; cell segs/cyls cached until the cell changes */
+        s_cvHitCount    = 0; /* per-frame; cell segs/cyls cached until the cell changes */
         s_cvHitCylCount = 0; /* per-frame blocker markers */
     }
 
@@ -1335,8 +1624,14 @@ void DbgOverlay_Render(void)
     glUseProgram(prev_prog);
     glBlendFunc(prev_blend_src, prev_blend_dst);
     glBlendEquationSeparate(prev_blend_eq_rgb, prev_blend_eq_a);
-    if (prev_depth) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
-    if (prev_blend) glEnable(GL_BLEND);      else glDisable(GL_BLEND);
+    if (prev_depth)
+        glEnable(GL_DEPTH_TEST);
+    else
+        glDisable(GL_DEPTH_TEST);
+    if (prev_blend)
+        glEnable(GL_BLEND);
+    else
+        glDisable(GL_BLEND);
 }
 
 #endif /* SH_PC_PORT */
