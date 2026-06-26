@@ -56,8 +56,9 @@ static bool s_socketInit = false;
 #define NVGPU_GPU_IOCTL_PMU_GET_GPU_LOAD 0x80044715
 static u32 s_nvGpuFd = (u32)-1;
 static bool s_nvInit = false;
-/* Smoothed GPU load (tenths of percent, 0-1000). */
-static u32 g_gpuLoad10 = 0;
+/* Smoothed GPU load (tenths of percent, 0-1000). Read by dbg_overlay.c's
+ * onscreen FPS monitor (extern unsigned int) so it can show GPU% live. */
+u32 g_gpuLoad10 = 0;
 
 /* Perf counters from PsyX_GPU.cpp — read-only here. */
 extern int g_perf_splits3d;
@@ -65,11 +66,6 @@ extern int g_perf_verts3d;
 extern int g_perf_splits2d;
 extern int g_perf_verts2d;
 extern float g_perf_submit_ms;
-
-/* Texture cache counters from PsyX_texcache.cpp. */
-extern int g_texCacheEvictions;
-extern int g_texCacheDecodes;
-extern int g_texCacheHits;
 
 /* Called from DrawAllSplits every ~180 calls (~3s) on the main thread. */
 extern void (*g_perf_callback)(int s3d, int v3d, int s2d, int v2d, float ms);
@@ -92,15 +88,12 @@ static void PerfCallback(int s3d, int v3d, int s2d, int v2d, float ms)
     u32 gload = g_gpuLoad10;
     char buf[256];
     int n = snprintf(buf, sizeof(buf),
-        "[PERF] GPU=%u.%u%%  submit=%.2fms  splits=%d  verts=%d  tc_hit=%d  tc_dec=%d  tc_evict=%d\n",
+        "[PERF] GPU=%u.%u%%  submit=%.2fms  splits=%d  verts=%d\n",
         gload / 10, gload % 10, (double)ms,
-        splits_total, verts_total,
-        g_texCacheHits, g_texCacheDecodes, g_texCacheEvictions);
+        splits_total, verts_total);
     fwrite(buf, 1, n, stdout);
     fflush(stdout);
     if (s_perfLog) { fwrite(buf, 1, n, s_perfLog); fflush(s_perfLog); }
-    g_texCacheDecodes = 0;
-    g_texCacheHits = 0;
 }
 
 static void InitNvGpu(void)
@@ -344,6 +337,14 @@ int main(int argc, char** argv)
     }
 
     PsyX_Initialise("Silent Hill", resW, resH, 0);
+
+    {
+        extern void DbgOverlay_PushLine(const char* line);
+        extern void DbgOverlay_Render(void);
+        extern void (*g_PsyX_PostCaptureHook)(void);
+        g_ShOverlayPushLine    = DbgOverlay_PushLine;
+        g_PsyX_PostCaptureHook = DbgOverlay_Render;
+    }
 
     s_perfLog = fopen("perf.log", "w");
     g_perf_callback = PerfCallback;
