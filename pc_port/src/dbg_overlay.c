@@ -353,31 +353,68 @@ static void log_mark(char letter, int idx, VECTOR3* hpos, VECTOR3* cpos)
     SH_DBG_ECHO("========================");
 }
 
+/* GLSL version header: OGL 3.3 core (macOS/Win/Linux) needs #version 140;
+ * Switch GLES 3 needs #version 300 es + precision.  Both drop the old
+ * attribute/varying/texture2D/gl_FragColor vocabulary. */
+#ifdef __SWITCH__
+#define OVL_GLSL_HDR "#version 300 es\nprecision mediump float;\n"
+#else
+#define OVL_GLSL_HDR "#version 140\n"
+#endif
+
+static void ovl_check_shader(GLuint shader, const char* name)
+{
+    GLint ok;
+    glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);
+    if (!ok) {
+        char log[512];
+        glGetShaderInfoLog(shader, sizeof(log), NULL, log);
+        fprintf(stderr, "overlay shader '%s' compile error:\n%s\n", name, log);
+        abort();
+    }
+}
+static void ovl_check_program(GLuint prog, const char* name)
+{
+    GLint ok;
+    glGetProgramiv(prog, GL_LINK_STATUS, &ok);
+    if (!ok) {
+        char log[512];
+        glGetProgramInfoLog(prog, sizeof(log), NULL, log);
+        fprintf(stderr, "overlay program '%s' link error:\n%s\n", name, log);
+        abort();
+    }
+}
+
 static void overlay_gl_init(void)
 {
     GLuint vs, fs;
     static const char* vs_src =
-        "attribute vec2 a_pos;\n"
-        "attribute vec2 a_uv;\n"
-        "varying vec2 v_uv;\n"
+        OVL_GLSL_HDR
+        "in vec2 a_pos;\n"
+        "in vec2 a_uv;\n"
+        "out vec2 v_uv;\n"
         "void main() {\n"
         "    v_uv = a_uv;\n"
         "    gl_Position = vec4(a_pos, 0.0, 1.0);\n"
         "}\n";
     static const char* fs_src =
-        "varying vec2 v_uv;\n"
+        OVL_GLSL_HDR
+        "in vec2 v_uv;\n"
+        "out vec4 fragColor;\n"
         "uniform sampler2D u_tex;\n"
         "void main() {\n"
-        "    gl_FragColor = texture2D(u_tex, v_uv);\n"
+        "    fragColor = texture(u_tex, v_uv);\n"
         "}\n";
 
     vs = glCreateShader(GL_VERTEX_SHADER);
     glShaderSource(vs, 1, &vs_src, NULL);
     glCompileShader(vs);
+    ovl_check_shader(vs, "overlay.vert");
 
     fs = glCreateShader(GL_FRAGMENT_SHADER);
     glShaderSource(fs, 1, &fs_src, NULL);
     glCompileShader(fs);
+    ovl_check_shader(fs, "overlay.frag");
 
     s_prog = glCreateProgram();
     glAttachShader(s_prog, vs);
@@ -385,6 +422,7 @@ static void overlay_gl_init(void)
     glBindAttribLocation(s_prog, 0, "a_pos");
     glBindAttribLocation(s_prog, 1, "a_uv");
     glLinkProgram(s_prog);
+    ovl_check_program(s_prog, "overlay");
     glDeleteShader(vs);
     glDeleteShader(fs);
 
@@ -432,23 +470,27 @@ static void overlay_gl_init(void)
     /* Colored-line program for the collision wireframe (a_pos = NDC, a_col = RGB). */
     {
         static const char* lvs_src =
-            "attribute vec2 a_pos;\n"
-            "attribute vec3 a_col;\n"
-            "varying vec3 v_col;\n"
+            OVL_GLSL_HDR
+            "in vec2 a_pos;\n"
+            "in vec3 a_col;\n"
+            "out vec3 v_col;\n"
             "void main() { v_col = a_col; gl_Position = vec4(a_pos, 0.0, 1.0); }\n";
         static const char* lfs_src =
-            "varying vec3 v_col;\n"
-            "void main() { gl_FragColor = vec4(v_col, 1.0); }\n";
+            OVL_GLSL_HDR
+            "in vec3 v_col;\n"
+            "out vec4 fragColor;\n"
+            "void main() { fragColor = vec4(v_col, 1.0); }\n";
         GLuint lvs = glCreateShader(GL_VERTEX_SHADER);
         GLuint lfs = glCreateShader(GL_FRAGMENT_SHADER);
-        glShaderSource(lvs, 1, &lvs_src, NULL); glCompileShader(lvs);
-        glShaderSource(lfs, 1, &lfs_src, NULL); glCompileShader(lfs);
+        glShaderSource(lvs, 1, &lvs_src, NULL); glCompileShader(lvs); ovl_check_shader(lvs, "line.vert");
+        glShaderSource(lfs, 1, &lfs_src, NULL); glCompileShader(lfs); ovl_check_shader(lfs, "line.frag");
         s_line_prog = glCreateProgram();
         glAttachShader(s_line_prog, lvs);
         glAttachShader(s_line_prog, lfs);
         glBindAttribLocation(s_line_prog, 0, "a_pos");
         glBindAttribLocation(s_line_prog, 1, "a_col");
         glLinkProgram(s_line_prog);
+        ovl_check_program(s_line_prog, "line");
         glDeleteShader(lvs); glDeleteShader(lfs);
 
         glGenVertexArrays(1, &s_line_vao);
