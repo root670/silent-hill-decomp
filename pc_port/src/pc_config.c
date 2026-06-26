@@ -18,6 +18,7 @@ s_PcConfig g_PcConfig = {
     .showConsole    = 0,
     .showFps        = 0, /* onscreen FPS monitor */
     .psxDither      = 1, /* 0=off, 1=PSX dither, 2=bilinear */
+    .screenDither   = 1, /* 1=screen-wide dither force on (default), 0=off */
     .widescreenMode  = 1, /* 0=pillarbox, 1=Hor+ (default, no bars + correct proportions), 2=stretch */
     .menuPillarbox   = 1, /* 1=pillarbox 2D screens (black bars), 0=stretch to fill */
     .allowLooseFiles = 0, /* 0=disc image only, 1=scan gamedata/load/ first */
@@ -269,6 +270,10 @@ void PcConfig_Load(const char* path)
             if (v < 0) v = 0;
             if (v > 2) v = 2;
             g_PcConfig.psxDither = v;
+        }
+        else if (strcmp(key, "screen_dither") == 0)
+        {
+            g_PcConfig.screenDither = (atoi(value) != 0);
         }
         else if (strcmp(key, "widescreen_mode") == 0)
         {

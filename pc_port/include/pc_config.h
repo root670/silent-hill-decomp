@@ -35,6 +35,7 @@ typedef struct {
     int showConsole;     /* 0=off, 1=external window, 2=ingame overlay, 3=ingame+external */
     int showFps;         /* 1 = draw onscreen FPS/frame-time monitor (config key: show_fps) */
     int psxDither;       /* texture filtering mode: 0 = off, 1 = PSX dither, 2 = bilinear */
+    int screenDither;    /* 1 = apply screen-wide PSX dither force (u_ditherForce), 0 = off (config key: screen_dither) */
     int widescreenMode;  /* 0 = pillarbox (PSX-faithful, default), 1 = Hor+ (extra side content), 2 = stretch */
     int menuPillarbox;   /* 1 = pillarbox 2D screens (menus/load) with 4:3 black bars instead of stretching to fill (config key: menu_pillarbox) */
     int allowLooseFiles; /* 1 = scan gamedata/load/{folder}/{name}.{ext} before CD read (texture mod support) */

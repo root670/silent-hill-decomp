@@ -721,6 +721,9 @@ int main(int argc, char* argv[])
            g_cfg_psxDither ? "PSX dither" :
            g_cfg_bilinearFiltering ? "bilinear" : "off");
 
+    g_cfg_screenDither = g_PcConfig.screenDither;
+    SH_LOG("Screen dither: %s", g_cfg_screenDither ? "on" : "off");
+
     /* PGXP master gate: PsyCross is compiled with USE_PGXP=1, but the
      * runtime path is opt-in via config.cfg use_pgxp. When 0, prim emit
      * writes a_zw=0 and the vertex shader takes the 2D-ortho branch
