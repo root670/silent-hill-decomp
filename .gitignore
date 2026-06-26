@@ -1,6 +1,7 @@
 asm/
 assets/
 build/
+build_switch/
 rom/
 linkers/
 .vscode/
