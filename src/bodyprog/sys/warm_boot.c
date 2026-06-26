@@ -82,6 +82,28 @@ s32 MainLoop_ShouldWarmReset(void) // 0x80034108
     #undef WARM_BOOT_COMBO_PRESS_ALT
 }
 
+#ifdef SH_PC_PORT
+/* PC: the PSX drain advances the audio task pool one state per video frame.
+ * On PC, codes 2/3/4 (VAB/KDT load, XA preload seek) are synchronous — memcpy
+ * SPU write, inline CdSync — so the per-VSync pacing there is pure idle.
+ * Codes 1 (XA playback, real-time OpenAL stream) and 5 (BGM vol fade,
+ * vol-=4/frame) are audible and keep their pacing. Mirrors Sd_TaskPoolDrain /
+ * Fs_QueueWaitForEmpty. The 1024 guard replaces the original unbounded loop. */
+static void Wb_Drain(void)
+{
+    int guard;
+    for (guard = 0; guard < 1024; guard++)
+    {
+        u8 c = Sd_AudioStreamingCheck();
+        if (!c) break;
+        Sd_TaskPoolExecute();
+        if (c != 2 && c != 3 && c != 4) {
+            VSync(SyncMode_Wait);
+        }
+    }
+}
+#endif
+
 void Game_WarmBoot(void) // 0x80034264
 {
     e_GameState prevState;
@@ -91,31 +113,40 @@ void Game_WarmBoot(void) // 0x80034264
     func_800892A4(4);
     func_80089128();
     SD_Call(19);
-
+#ifdef SH_PC_PORT
+    Wb_Drain();
+#else
     while (Sd_AudioStreamingCheck())
     {
         Sd_TaskPoolExecute();
         VSync(SyncMode_Wait);
     }
+#endif
 
     SD_Call(20);
-
+#ifdef SH_PC_PORT
+    Wb_Drain();
+#else
     while (Sd_AudioStreamingCheck())
     {
         Sd_TaskPoolExecute();
         VSync(SyncMode_Wait);
     }
+#endif
 
     Fs_QueueReset();
     Fs_QueueWaitForEmpty();
     sd_work_init();
     Sd_AmbientSfxSet(1);
-
+#ifdef SH_PC_PORT
+    Wb_Drain();
+#else
     while (Sd_AudioStreamingCheck())
     {
         Sd_TaskPoolExecute();
         VSync(SyncMode_Wait);
     }
+#endif
 
     if (g_SysWork.sysFlags & SysFlag_DemoActive)
     {
