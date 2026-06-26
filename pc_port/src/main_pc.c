@@ -638,6 +638,10 @@ int main(int argc, char* argv[])
      * after PsyX_Shutdown). */
     PsyX_Log_SetStream(g_PcConfig.enableDebugLog ? g_ShDebugLog : NULL);
 
+    /* Force NTSC (60Hz) before the interrupt thread starts — g_vmode defaults to
+     * -1, which the thread treats as PAL (50Hz), causing 50fps menus / 25fps gameplay. */
+    SetVideoMode(0);
+
     /* Initialize PsyCross (creates SDL2 window + OpenGL context) */
     SH_LOG("Initializing PsyCross (SDL2 + OpenGL)...");
     PsyX_Initialise("Silent Hill", windowWidth, windowHeight, g_PcConfig.fullscreen);
