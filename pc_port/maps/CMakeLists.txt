@@ -151,20 +151,21 @@ function(add_map_overlay MAP_NAME MAP_DEFINE)
         # (built PIC — see CMAKE_POSITION_INDEPENDENT_CODE in ../CMakeLists.txt).
         # ELF shared objects export all global symbols by default, so
         # g_MapOverlayHeader_<name> is visible to dlsym without extra flags.
-        target_link_libraries(${MAP_NAME} PRIVATE psycross_static)
         # Build ordering only (the exe must exist to dlopen the map); there is
         # no link-time dependency on the executable.
         add_dependencies(${MAP_NAME} SilentHillPC)
         if(APPLE)
-            # ld64 (unlike GNU ld) errors on undefined symbols at link time.
-            # Game-code symbols are resolved from the main exe at dlopen, so
-            # allow them to stay undefined in the dylib. (macOS two-level
-            # namespaces already bind each dylib's OWN defined symbols locally,
-            # so the ELF interposition problem handled below does not arise.)
+            # All PsyCross symbols (DrawSync, vram[], GLAD, GR_UpdateVRAM, etc.)
+            # resolve from the main exe's flat dynamic namespace at dlopen time.
+            # psycross_static is NOT linked: each DLL must not carry its own copy
+            # of PsyCross globals or GPU state will be split from the main exe.
+            # ld64 (unlike GNU ld) errors on undefined symbols at link time, so
+            # allow game-code symbols to stay undefined in the dylib.
             target_link_options(${MAP_NAME} PRIVATE "-Wl,-undefined,dynamic_lookup")
         else()
-            # Linux/ELF: bind THIS .so's own global definitions to its local
-            # copies instead of letting them be interposed by the main exe.
+            # Linux/ELF: link PsyCross statically (built PIC) and bind THIS
+            # .so's own global definitions to its local copies instead of
+            # letting them be interposed by the main exe.
             # map0_s00 is compiled INTO the exe, and -rdynamic publishes its
             # globals (MAP_EVENTS, MAP_POINTS, the per-map func_800D* code,
             # extracted-data tables) into the global dynamic scope. Every other
@@ -178,6 +179,7 @@ function(add_map_overlay MAP_NAME MAP_DEFINE)
             # defines; undefined game-state symbols (g_SysWork, g_SavegamePtr,
             # the decompiled exe functions) are unaffected and still import from
             # the exe. dlsym of g_MapOverlayHeader_<name> still works.
+            target_link_libraries(${MAP_NAME} PRIVATE psycross_static)
             target_link_options(${MAP_NAME} PRIVATE "-Wl,-Bsymbolic")
         endif()
     endif()
