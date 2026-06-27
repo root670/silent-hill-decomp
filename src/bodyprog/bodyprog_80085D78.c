@@ -120,6 +120,7 @@ void PaperMap_ReuploadTimToVram_PC(void)
     if (s_logCount < 5) {
     }
 }
+
 #endif
 
 // ========================================
