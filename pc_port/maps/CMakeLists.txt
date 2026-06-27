@@ -147,10 +147,7 @@ function(add_map_overlay MAP_NAME MAP_DEFINE)
         # decompiled functions, etc.) are left undefined in the .so and
         # resolved at dlopen() time from the main executable, which is built
         # with ENABLE_EXPORTS (adds -rdynamic so its symbols populate the
-        # global dynamic symbol table). PsyCross is linked in statically
-        # (built PIC — see CMAKE_POSITION_INDEPENDENT_CODE in ../CMakeLists.txt).
-        # ELF shared objects export all global symbols by default, so
-        # g_MapOverlayHeader_<name> is visible to dlsym without extra flags.
+        # global dynamic symbol table).
         # Build ordering only (the exe must exist to dlopen the map); there is
         # no link-time dependency on the executable.
         add_dependencies(${MAP_NAME} SilentHillPC)
